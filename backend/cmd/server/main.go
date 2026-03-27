@@ -5,9 +5,15 @@ import (
 	"finargentina-server/internal/mcp"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file but don't fail if it's missing (it won't be in production)
+	_ = godotenv.Load()
+
 	database, err := db.Connect()
 	if err != nil {
 		log.Fatal("Could not connect to database:", err)
@@ -35,8 +41,12 @@ func main() {
 		mcpServer.ServeHTTP(w, r)
 	})
 
-	log.Println("FinArgentina Backend running on :8080/mcp")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("FinArgentina Backend running on :%s/mcp\n", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
 }
