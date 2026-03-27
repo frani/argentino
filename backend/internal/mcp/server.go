@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"finargentina-server/internal/db"
 	"finargentina-server/internal/scraper"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 type JSONRPCRequest struct {
@@ -148,12 +150,57 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (i
 		}, nil
 	}
 
+	if p.Name == "get_last_sync_date" {
+		lastSync, err := s.Service.GetLastSyncDate(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var text string
+		if lastSync.IsZero() {
+			text = ""
+		} else {
+			text = lastSync.Format(time.RFC3339)
+		}
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": text},
+			},
+		}, nil
+	}
+
 	return nil, fmt.Errorf("tool not found")
 }
 
 func (s *Server) syncData() {
 	logPrefix := "[Sync]"
 	fmt.Println(logPrefix, "Starting sync...")
+	
+	ctx := context.Background()
+	
+	// Fetch updated_at map from DB
+	rows, err := s.Service.DB.QueryContext(ctx, "SELECT bco_code, updated_at FROM entities")
+	if err != nil {
+		fmt.Println(logPrefix, "Error fetching entities from DB:", err)
+		// We can gracefully continue without the map, or maybe return.
+		// Let's just create an empty map on error.
+	}
+	
+	updateTimes := make(map[int]time.Time)
+	if err == nil {
+		for rows.Next() {
+			var codeStr string
+			var updatedAt sql.NullTime
+			if err := rows.Scan(&codeStr, &updatedAt); err == nil {
+				var code int
+				fmt.Sscanf(codeStr, "%d", &code)
+				if updatedAt.Valid {
+					updateTimes[code] = updatedAt.Time
+				}
+			}
+		}
+		rows.Close()
+	}
+
 	entities, err := scraper.FetchEntities()
 	if err != nil {
 		fmt.Println(logPrefix, "Error fetching entities:", err)
@@ -161,6 +208,13 @@ func (s *Server) syncData() {
 	}
 
 	for _, e := range entities {
+		if lastUpdated, exists := updateTimes[e.Codigo]; exists {
+			if time.Since(lastUpdated) < 24*time.Hour {
+				fmt.Println(logPrefix, "Skipping:", e.Denominacion, "(recently updated)")
+				continue
+			}
+		}
+
 		fmt.Println(logPrefix, "Scraping:", e.Denominacion)
 		balances, err := scraper.ScrapeEntityBalance(e)
 		if err != nil {

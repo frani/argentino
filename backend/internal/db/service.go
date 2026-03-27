@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"finargentina-server/internal/scraper"
 	"fmt"
+	"time"
 )
 
 type Service struct {
@@ -141,6 +142,17 @@ func (s *Service) GetMarketOverview(ctx context.Context) (*scraper.MarketOvervie
 		overview.History = append(overview.History, p)
 	}
 	return &overview, nil
+}
+
+func (s *Service) GetLastSyncDate(ctx context.Context) (time.Time, error) {
+	var lastSync sql.NullTime
+	query := `SELECT MAX(updated_at) FROM entities`
+	err := s.DB.QueryRowContext(ctx, query).Scan(&lastSync)
+	if err != nil {
+		// Use empty time.Time if error or table is empty
+		return time.Time{}, nil
+	}
+	return lastSync.Time, nil
 }
 
 func atoi(s string) int {
