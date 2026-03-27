@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: finargentina-db
+    environment:
+      POSTGRES_USER: finuser
+      POSTGRES_PASSWORD: finpassword
+      POSTGRES_DB: finargentina
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: finargentina-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://finuser:finpassword@db:5432/finargentina?sslmode=disable
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: finargentina-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
