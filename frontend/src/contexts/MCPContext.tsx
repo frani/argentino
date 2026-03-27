@@ -28,6 +28,8 @@ interface MCPContextType {
   fetchEntities: () => Promise<void>;
   fetchMarketData: () => Promise<void>;
   fetchBalances: (id: string) => Promise<Balance[]>;
+  lastSyncDate: string | null;
+  fetchLastSyncDate: () => Promise<void>;
 }
 
 const MCPContext = createContext<MCPContextType | undefined>(undefined);
@@ -41,6 +43,7 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [loadingMarket, setLoadingMarket] = useState(false);
   const [hasFetchedEntities, setHasFetchedEntities] = useState(false);
   const [hasFetchedMarket, setHasFetchedMarket] = useState(false);
+  const [lastSyncDate, setLastSyncDate] = useState<string | null>(null);
 
   const callMCP = async (method: string, params: any = {}) => {
     const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -95,6 +98,18 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [hasFetchedMarket, loadingMarket]);
 
+  const fetchLastSyncDate = useCallback(async () => {
+    try {
+      const result = await callMCP('tools/call', { name: 'get_last_sync_date' });
+      const text = result.content?.[0]?.text;
+      if (text) {
+        setLastSyncDate(text);
+      }
+    } catch (e) {
+      console.error("Error fetching last sync date:", e);
+    }
+  }, []);
+
   const fetchBalances = useCallback(async (id: string) => {
     if (balancesCache[id]) {
       return balancesCache[id];
@@ -127,7 +142,9 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       loadingMarket,
       fetchEntities,
       fetchMarketData,
-      fetchBalances
+      fetchBalances,
+      lastSyncDate,
+      fetchLastSyncDate
     }}>
       {children}
     </MCPContext.Provider>

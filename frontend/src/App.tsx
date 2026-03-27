@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, NavLink, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { useMCP } from './hooks/useMCP';
 import { Window, RetroButton } from './components/RetroUI';
-import { RefreshCw, LayoutGrid, Globe, ChevronRight } from 'lucide-react';
+import { RefreshCw, LayoutGrid, Globe, ChevronRight, Search } from 'lucide-react';
 import { EntityAnalysis } from './components/EntityAnalysis';
 import { MarketOverview } from './components/MarketOverview';
 import { useMCPContext } from './contexts/MCPContext';
@@ -15,8 +15,12 @@ function App() {
     loadingEntities, 
     loadingMarket, 
     fetchEntities, 
-    fetchMarketData 
+    fetchMarketData,
+    lastSyncDate,
+    fetchLastSyncDate
   } = useMCPContext();
+
+  const [entitySearchName, setEntitySearchName] = useState('');
 
   const syncData = async () => {
     try {
@@ -30,7 +34,11 @@ function App() {
   useEffect(() => {
     fetchEntities();
     fetchMarketData();
-  }, [fetchEntities, fetchMarketData]);
+    fetchLastSyncDate();
+  }, [fetchEntities, fetchMarketData, fetchLastSyncDate]);
+
+  const lastSyncDateObj = lastSyncDate ? new Date(lastSyncDate) : null;
+  const isSyncDisabled = lastSyncDateObj ? (new Date().getTime() - lastSyncDateObj.getTime() < 24 * 60 * 60 * 1000) : false;
 
   const topEntities = entities
     .filter(e => e.annotations?.latest_assets)
@@ -42,17 +50,26 @@ function App() {
 
   const globalLoading = loadingEntities || loadingMarket;
 
-  const Layout = ({ children }: { children: React.ReactNode }) => (
+  const renderLayout = (children: React.ReactNode) => (
     <div className="min-h-screen p-4 flex flex-col gap-4 font-sans text-black overflow-hidden h-screen">
       {/* Top Menu */}
       <div className="window py-1 px-2 flex justify-between items-center bg-retro-bg shrink-0">
         <div className="flex gap-2 text-xs">
           <RetroButton className="font-bold px-2">Inicio</RetroButton>
           <div className="w-[1px] bg-gray-600 self-stretch mx-1 shadow-button" />
-          <RetroButton onClick={() => { fetchEntities(); fetchMarketData(); }} disabled={globalLoading}>
+          <RetroButton onClick={() => window.location.reload()} disabled={globalLoading} className="px-2">
             <RefreshCw className={`w-3 h-3 ${globalLoading ? 'animate-spin' : ''}`} />
           </RetroButton>
-          <RetroButton onClick={syncData} className="px-2">Sincronizar BCRA</RetroButton>
+          <div className="flex items-center gap-2 border-l border-black/10 pl-2">
+            <RetroButton onClick={syncData} className="px-2" disabled={isSyncDisabled || globalLoading}>
+              Sincronizar BCRA
+            </RetroButton>
+            {lastSyncDateObj && (
+              <span className="text-[10px] opacity-70">
+                Última sync: {lastSyncDateObj.toLocaleDateString()} {lastSyncDateObj.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
         <div className="text-[10px] font-bold bg-pastel-yellow border-black border px-2 shadow-button">
           FinArgentina v1.0.0
@@ -62,7 +79,7 @@ function App() {
       <div className="flex-1 grid grid-cols-12 gap-4 overflow-hidden">
         {/* Sidebar */}
         <div className="col-span-3 h-full overflow-y-auto">
-          <Window title="Explorador" className="bg-pastel-pink h-full">
+          <Window title="Explorador" className="bg-pastel-pink/50 h-full">
             <div className="flex flex-col gap-1">
               <NavLink 
                 to="/mercado-general"
@@ -81,7 +98,7 @@ function App() {
                 <span className="font-bold text-sm">Ranking Entidades</span>
               </NavLink>
 
-              <div className="mt-4 border-t-2 border-black/10 pt-2 px-1">
+              <div className="mt-4 border-t-2 border-black/5 pt-2 px-1">
                 <span className="text-[9px] uppercase font-bold opacity-50">Acceso Directo</span>
                 {entities.slice(0, 5).map(e => {
                   const id = e.uri.split('/').pop();
@@ -119,7 +136,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Layout>
+      {renderLayout(
         <Routes>
           <Route path="/" element={<Navigate to="/mercado-general" replace />} />
           <Route path="/mercado-general" element={
@@ -134,18 +151,31 @@ function App() {
           
           <Route path="/entidades" element={
             <Window title="Nómina y Ranking de Entidades" className="bg-pastel-yellow h-full">
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead>
-                    <tr className="border-b-2 border-black bg-gray-100 italic">
-                      <th className="p-2">#</th>
-                      <th className="p-2">Denominación</th>
-                      <th className="p-2">Activo (Últ.)</th>
-                      <th className="p-2">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entities.map((e, i) => {
+              <div className="h-full flex flex-col">
+                <div className="mb-4 p-2 bg-retro-bg border-2 border-black shadow-button flex items-center gap-2 shrink-0">
+                  <Search className="w-4 h-4 text-black" />
+                  <input
+                    type="text"
+                    placeholder="Buscar entidad por nombre..."
+                    value={entitySearchName}
+                    onChange={(e) => setEntitySearchName(e.target.value)}
+                    className="bg-white px-2 py-1 flex-1 text-xs font-bold font-mono text-black border-2 border-black shadow-[inset_2px_2px_0px_rgba(0,0,0,0.1)] focus:outline-none focus:bg-pastel-blue/20"
+                  />
+                </div>
+                <div className="overflow-auto flex-1 bg-white border-2 border-black shadow-button min-h-0">
+                  <table className="w-full border-collapse text-left text-xs relative">
+                    <thead className="sticky top-0 z-10 shadow-[0_2px_0_0_black]">
+                      <tr className="bg-gray-100 italic">
+                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">#</th>
+                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Denominación</th>
+                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Activo (Últ.)</th>
+                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entities
+                        .filter(e => e.name.toLowerCase().includes(entitySearchName.toLowerCase()))
+                        .map((e, i) => {
                       const id = e.uri.split('/').pop();
                       return (
                         <tr key={e.uri} className="border-b border-gray-300 hover:bg-pastel-blue">
@@ -167,12 +197,13 @@ function App() {
                   </tbody>
                 </table>
               </div>
+              </div>
             </Window>
           } />
 
           <Route path="/entidades/:id" element={<EntityDetailWrapper />} />
         </Routes>
-      </Layout>
+      )}
     </BrowserRouter>
   );
 }
