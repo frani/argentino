@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-retro-bg font-sans;
+  }
+}
+
+@layer components {
+  .window {
+    @apply bg-retro-bg border-2 border-black shadow-window p-1;
+  }
+  
+  .title-bar {
+    @apply bg-retro-blue text-white px-2 py-1 flex justify-between items-center font-bold text-sm;
+  }
+
+  .window-content {
+    @apply bg-window-bg border-2 border-black mt-1 p-4 overflow-auto;
+  }
+
+  .retro-button {
+    @apply bg-retro-bg border-2 border-black shadow-button px-4 py-1 text-sm active:shadow-button-pressed outline-none;
+  }
+}
