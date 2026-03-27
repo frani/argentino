@@ -13,8 +13,15 @@ export default {
         'retro-yellow': '#ffff00', // Warning yellow
         'retro-green': '#4f954fff', // Success green
         'pastel-pink': '#fbcfe8',
+        'pastel-pink-dark': '#f9a8d4',
         'pastel-yellow': '#fef08a',
+        'pastel-yellow-dark': '#fde047',
         'pastel-blue': '#bfdbfe',
+        'pastel-blue-dark': '#93c5fd',
+        'pastel-green': '#bbf7d0',
+        'pastel-green-dark': '#86efac',
+        'pastel-purple': '#e9d5ff',
+        'pastel-purple-dark': '#d8b4fe',
         'window-bg': '#ffffff',
       },
       boxShadow: {

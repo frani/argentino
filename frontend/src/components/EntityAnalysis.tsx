@@ -37,11 +37,13 @@ interface EntityAnalysisProps {
 export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
   // Helper to find value by label (normalized matching)
   const getValue = (b: Balance, labels: string[]) => {
-    const normalize = (s: string) => s.replace(/[\s\.]+/g, '').toUpperCase();
+    const normalize = (s: string) => s.replace(/[\s\.\-]+/g, '').toUpperCase();
     const targetLabels = labels.map(normalize);
 
     const item = b.line_items?.find(li => {
       const normalizedItemLabel = normalize(li.label);
+      // Try exact match first, then include
+      if (targetLabels.some(tl => normalizedItemLabel === tl)) return true;
       return targetLabels.some(tl => normalizedItemLabel.includes(tl));
     });
     return item?.value || 0;
@@ -55,33 +57,84 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
 
   const latest = [...balances].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month))[0];
 
-  const processedData = sortedBalances.map(b => {
-    const netIncome = getValue(b, ["RDOS", "RESULTADO"]);
-    const deposits = getValue(b, ["DEPÓSITOS", "DEPOSITOS"]);
-    const cash = getValue(b, ["EFECTIVO", "DISPONIBILIDADES"]);
-    const nonPerforming = getValue(b, ["PREVISIONES", "CARTERA IRREGULAR"]);
+  const calculateMetrics = (b: Balance, prev?: Balance) => {
+    // Basic components
+    const assets = b.assets || getValue(b, ["ACTIVO", "TOTAL DEL ACTIVO"]);
+    const netWorth = b.net_worth || getValue(b, ["PATRIMONIONETO", "PATRIMONIO", "TOTAL DEL PATRIMONIO"]);
+    const liabilities = b.liabilities || (assets - netWorth);
+    const netIncome = getValue(b, ["RESULTADODEL", "RESULTADONETO", "RDOS", "RESULTADO", "RESULTADO FINAL"]);
     
-    const assets = b.assets || getValue(b, ["ACTIVO"]);
-    const netWorth = b.net_worth || getValue(b, ["PATRIMONIONETO"]);
+    // Asset Quality components
+    const loans = getValue(b, ["PRESTAMOS", "PRESTAMOS AL SECTOR", "TOTAL DE PRESTAMOS"]);
+    const nonPerforming = getValue(b, ["CARTERA IRREGULAR", "PRESTAMOS EN MORA", "EN MORA", "SITUACION 3", "SITUACION 4", "SITUACION 5"]);
+    const provisions = Math.abs(getValue(b, ["PREVISIONES", "PREVISIONES POR RIESGO"]));
+    const wholesaleLoans = getValue(b, ["SECTOR MAYORISTA", "PRESTAMOS AL SECTOR PUBLICO", "TITULOS PUBLICOS"]);
+
+    // Income/Expense components
+    const financialIncome = getValue(b, ["INGRESOS FINANCIEROS", "INGRESOS POR INTERESES", "INTERESES GANADOS"]);
+    const financialExpenses = Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "EGRESOS POR INTERESES", "INTERESES PAGADOS"]));
+    const badDebtExp = Math.abs(getValue(b, ["CARGO POR INCOBRABILIDAD", "CARGO POR RIESGO"]));
+    const adminExp = Math.abs(getValue(b, ["GASTOS DE ADMINISTRACION", "GASTOS ADMINISTRATIVOS"]));
+    const personalExp = Math.abs(getValue(b, ["GASTOS DE PERSONAL", "GASTOS DE ESTRUCTURA"]));
+    const ordinaryMargin = getValue(b, ["MARGEN ORDINARIO", "RESULTADO POR INTERMEDIACION", "RESULTADO BRUTO", "MARGEN DE INTERESES"]);
+
+    // Efficiency/Productivity components
+    const securities = getValue(b, ["TITULOS VALORES", "INVERSIONES", "TITULOS PUBLICOS"]);
+    const productiveAssets = (loans || (assets * 0.7)) + securities; // Proxy if loans missing
+
+    // Liquidity components
+    const deposits = getValue(b, ["DEPOSITOS", "TOTAL DE DEPOSITOS"]);
+    const previousDeposits = prev ? getValue(prev, ["DEPOSITOS", "TOTAL DE DEPOSITOS"]) : 0;
+    const sightDeposits = getValue(b, ["DEPOSITOS A LA VISTA", "CUENTA CORRIENTE", "CAJA DE AHORRO"]);
+    const cash = getValue(b, ["EFECTIVO", "DISPONIBILIDADES", "CAJA Y BANCOS", "CAJA"]);
+
+    const amortizaciones = Math.abs(getValue(b, ["AMORTIZACIONES", "DEPRECIACION"]));
+
+    // Regulatory (Might be partial/missing in common balance sheets)
+    const tier1Capital = getValue(b, ["CAPITAL BASICO", "RPC", "CAPITAL NIVEL 1", "RESPONSABILIDAD PATRIMONIAL"]);
+    const rwa = getValue(b, ["ACTIVOS PONDERADOS POR RIESGO", "APR", "COMPLEMENTARIO"]) || (assets * 0.8);
 
     return {
-      periodo: `${b.month}/${b.year}`,
-      activo: assets,
-      pasivo: b.liabilities,
-      patrimonio: netWorth,
-      roa: assets > 0 ? (netIncome / assets) * 100 : 0,
-      roe: netWorth > 0 ? (netIncome / netWorth) * 100 : 0,
-      liquidez: deposits > 0 ? (cash / deposits) * 100 : 0,
-      morosidad: assets > 0 ? (Math.abs(nonPerforming) / assets) * 100 : 0,
-    };
-  });
+      // 1. Solvencia y Capital
+      tier1Ratio: rwa > 0 ? (tier1Capital / rwa) * 100 : 0,
+      leverage: netWorth > 0 ? (assets / netWorth) : 0,
+      solvencia: assets > 0 ? (netWorth / assets) * 100 : 0,
 
-  const current = processedData[processedData.length - 1] || { roa: 0, roe: 0, liquidez: 0, morosidad: 0 };
-  
-  const basicRatios = {
-    solvency: latest?.assets > 0 ? (latest.net_worth / latest.assets) * 100 : 0,
-    leverage: latest?.net_worth > 0 ? latest.liabilities / latest.net_worth : 0,
+      // 2. Calidad de Activos
+      morosidad: loans > 0 ? (nonPerforming / loans) * 100 : 0,
+      cobertura: nonPerforming > 0 ? (provisions / nonPerforming) * 100 : 0,
+      cargaIncob: (financialIncome > 0) ? (badDebtExp / financialIncome) * 100 : 0,
+      concentracion: loans > 0 ? (wholesaleLoans / loans) * 100 : (wholesaleLoans / assets) * 100,
+
+      // 3. Gestión y Eficiencia
+      eficiencia: ordinaryMargin > 0 ? (adminExp / ordinaryMargin) * 100 : 0,
+      gastosPersAct: assets > 0 ? (personalExp / assets) * 100 : 0,
+      activosProdAct: assets > 0 ? (productiveAssets / assets) * 100 : 0,
+
+      // 4. Rentabilidad
+      nim: productiveAssets > 0 ? ((financialIncome - financialExpenses) / productiveAssets) * 100 : 0,
+      roe: netWorth > 0 ? (netIncome / netWorth) * 100 : 0,
+      roa: assets > 0 ? (netIncome / assets) * 100 : 0,
+
+      // 5. Liquidez
+      ltd: deposits > 0 ? (loans / deposits) * 100 : 0,
+      liqInmediata: sightDeposits > 0 ? (cash / sightDeposits) * 100 : (cash / (deposits * 0.4 || 1)) * 100,
+
+      // 6. Cash Flow / Otros
+      interestCoverage: financialExpenses > 0 ? ((netIncome + financialExpenses) / financialExpenses) : 0,
+      autoFinanciacion: assets > 0 ? ((netIncome + amortizaciones) / assets) * 100 : 0,
+      retencionDep: previousDeposits > 0 ? (deposits / previousDeposits) * 100 : 0,
+      
+      // Raw values for charts
+      assets,
+      netWorth,
+      liabilities,
+      periodo: `${b.month}/${b.year}`
+    };
   };
+
+  const processedData = sortedBalances.map((b, i) => calculateMetrics(b, i > 0 ? sortedBalances[i-1] : undefined));
+  const current = processedData[processedData.length - 1];
 
   const formatCurrency = (val: number) => {
     if (val === 0 || val === undefined) return "-";
@@ -106,38 +159,92 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
     (prev.line_items?.length || 0) > (current.line_items?.length || 0) ? prev : current
   , balances[0]);
 
-  referenceBalance.line_items?.forEach(item => {
+  const isIrrelevant = (label: string) => {
+    const upper = label.toUpperCase();
+    return upper.includes("FAVORABLE") || 
+           upper.includes("SALVEDAD") || 
+           upper.includes("CIERRE DE EJERCICIO") ||
+           upper.includes("ABSTENCION") ||
+           upper.includes("ADVERSA") ||
+           upper.includes("ENFASIS");
+  };
+
+  referenceBalance.line_items?.filter(item => !isIrrelevant(item.label)).forEach(item => {
     if (!rowMap.has(item.label)) {
       rowMap.set(item.label, { label: item.label, indentation: item.indentation });
       allRows.push({ label: item.label, indentation: item.indentation });
     }
   });
 
+  const RatioBox: React.FC<{ title: string; children: React.ReactNode; color: string; headerColor: string }> = ({ title, children, color, headerColor }) => (
+    <div className={`window ${color} flex flex-col`}>
+      <div className={`title-bar ${headerColor} !text-black !font-bold flex items-center gap-2 border-b-2 border-black`}>
+        <Calculator className="w-3 h-3" />
+        <span className="text-[11px] uppercase tracking-wider">{title}</span>
+      </div>
+      <div className="p-3 grid grid-cols-1 gap-2 bg-white/40 flex-1">
+        {children}
+      </div>
+    </div>
+  );
+
+  const RatioItem: React.FC<{ label: string; value: string; desc?: string }> = ({ label, value, desc }) => (
+    <div className="flex justify-between items-center bg-white/80 p-1.5 border border-black/10 shadow-[1px_1px_0px_rgba(0,0,0,1)]">
+      <div className="flex flex-col">
+        <span className="text-[9px] font-bold uppercase opacity-70 leading-none">{label}</span>
+        {desc && <span className="text-[8px] italic opacity-50 leading-none mt-0.5">{desc}</span>}
+      </div>
+      <span className="text-sm font-black font-mono">{value}</span>
+    </div>
+  );
+
   if (!latest) return <div className="p-4 italic text-center text-retro-blue">No hay datos disponibles.</div>;
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Indicadores de Gestión */}
-      <div className="window bg-pastel-green">
-        <div className="title-bar !bg-retro-green flex items-center gap-2">
-          <Calculator className="w-4 h-4" />
-          <span>Indicadores de Gestión (CAMELS) - {latest.month}/{latest.year}</span>
-        </div>
-        <div className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-4">
-           {[
-             { label: "Solvencia (PN/Act)", val: basicRatios.solvency.toFixed(2) + "%", color: "text-retro-blue" },
-             { label: "ROA (Período)", val: current.roa.toFixed(2) + "%", color: current.roa >= 0 ? "text-green-700" : "text-red-700" },
-             { label: "ROE (Período)", val: current.roe.toFixed(2) + "%", color: current.roe >= 0 ? "text-green-700" : "text-red-700" },
-             { label: "Liquidez/Depósitos", val: current.liquidez.toFixed(1) + "%", color: "text-blue-700" },
-             { label: "Apalancamiento", val: basicRatios.leverage.toFixed(2) + "x", color: "text-black" },
-             { label: "Morosidad/Activo", val: current.morosidad.toFixed(2) + "%", color: "text-red-600" }
-           ].map((r, i) => (
-             <div key={i} className="bg-white p-2 border-2 border-black shadow-button flex flex-col items-center">
-               <span className="text-[10px] uppercase font-bold opacity-60 text-center">{r.label}</span>
-               <span className={`text-xl font-bold ${r.color}`}>{r.val}</span>
-             </div>
-           ))}
-        </div>
+      {/* 6 Grid of Ratios */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* 1. Solvencia y Capital */}
+        <RatioBox title="Solvencia y Capital" color="bg-pastel-blue" headerColor="!bg-pastel-blue-dark">
+          <RatioItem label="Capital Tier 1" value={current.tier1Ratio !== 0 ? `${current.tier1Ratio.toFixed(2)}%` : "N/D"} desc="Basic / RWA" />
+          <RatioItem label="Apalancamiento" value={`${current.leverage.toFixed(2)}x`} desc="Activo / PN" />
+          <RatioItem label="Ratio de Solvencia" value={`${current.solvencia.toFixed(2)}%`} desc="PN / Activo" />
+        </RatioBox>
+
+        {/* 2. Calidad de Activos */}
+        <RatioBox title="Calidad de Activos" color="bg-pastel-pink" headerColor="!bg-pastel-pink-dark">
+          <RatioItem label="Morosidad (NPL)" value={`${current.morosidad.toFixed(2)}%`} desc="Mora / Cartera" />
+          <RatioItem label="Cobertura" value={current.cobertura !== 0 ? `${current.cobertura.toFixed(1)}%` : "N/D"} desc="Prev / Mora" />
+          <RatioItem label="Carga Incob." value={`${current.cargaIncob.toFixed(2)}%`} desc="Cargo / Ing. Fin" />
+          <RatioItem label="Concentración" value={`${current.concentracion.toFixed(1)}%`} desc="Mayorista / Total" />
+        </RatioBox>
+
+        {/* 3. Gestión y Eficiencia */}
+        <RatioBox title="Gestión y Eficiencia" color="bg-pastel-yellow" headerColor="!bg-pastel-yellow-dark">
+          <RatioItem label="Eficiencia" value={`${current.eficiencia.toFixed(1)}%`} desc="Cost-to-Income" />
+          <RatioItem label="Gastos Personal/Act" value={`${current.gastosPersAct.toFixed(2)}%`} desc="Carga Humana" />
+          <RatioItem label="Activos Prod/Act" value={`${current.activosProdAct.toFixed(1)}%`} desc="Generan Interés" />
+        </RatioBox>
+
+        {/* 4. Rentabilidad */}
+        <RatioBox title="Rentabilidad" color="bg-pastel-green" headerColor="!bg-pastel-green-dark">
+          <RatioItem label="NIM" value={`${current.nim.toFixed(2)}%`} desc="Margen Neto" />
+          <RatioItem label="ROE" value={`${current.roe.toFixed(2)}%`} desc="Neto / PN" />
+          <RatioItem label="ROA" value={`${current.roa.toFixed(2)}%`} desc="Neto / Activo" />
+        </RatioBox>
+
+        {/* 5. Liquidez */}
+        <RatioBox title="Liquidez" color="bg-pastel-purple" headerColor="!bg-pastel-purple-dark">
+          <RatioItem label="LTD (Loans/Deps)" value={`${current.ltd.toFixed(1)}%`} desc="Prést / Depo" />
+          <RatioItem label="Liq. Inmediata" value={`${current.liqInmediata.toFixed(1)}%`} desc="Disp / Vista" />
+        </RatioBox>
+
+        {/* 6. Cash Flow / Otros */}
+        <RatioBox title="Cash Flow & otros" color="bg-retro-bg" headerColor="!bg-gray-400">
+          <RatioItem label="Cobertura Interés" value={`${current.interestCoverage.toFixed(1)}x`} desc="EBIT / Gastos Fin" />
+          <RatioItem label="Autofinanciación" value={`${current.autoFinanciacion.toFixed(2)}%`} desc="Neto / Activo" />
+          <RatioItem label="Retención Dep." value={current.retencionDep !== 0 ? `${current.retencionDep.toFixed(1)}%` : "N/D"} desc="Estabilidad flujo" />
+        </RatioBox>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -151,12 +258,12 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
               <AreaChart data={processedData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="periodo" />
-                <YAxis tickFormatter={(val) => `$${(val/1e6).toFixed(0)}M`} />
-                <Tooltip />
+                <YAxis tickFormatter={(val) => `${(val / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 0 })} M`} />
+                <Tooltip formatter={(val: number, name: string) => [`${(val / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 0 })} M`, name]} />
                 <Legend />
-                <Area type="monotone" dataKey="activo" stroke="#000080" fill="#000080" fillOpacity={0.1} name="Activo" />
-                <Area type="monotone" dataKey="pasivo" stroke="#ff0000" fill="#ff0000" fillOpacity={0.05} name="Pasivo" />
-                <Area type="monotone" dataKey="patrimonio" stroke="#008000" fill="#008000" fillOpacity={0.05} name="P. Neto" />
+                <Area type="monotone" dataKey="assets" stroke="#000080" fill="#000080" fillOpacity={0.1} name="Activo" />
+                <Area type="monotone" dataKey="liabilities" stroke="#ff0000" fill="#ff0000" fillOpacity={0.05} name="Pasivo" />
+                <Area type="monotone" dataKey="netWorth" stroke="#008000" fill="#008000" fillOpacity={0.05} name="P. Neto" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -173,7 +280,7 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="periodo" />
                 <YAxis unit="%" />
-                <Tooltip />
+                <Tooltip formatter={(val: number, name: string) => [`${val.toFixed(2)}%`, name]} />
                 <Legend />
                 <Line type="monotone" dataKey="roa" stroke="#10b981" strokeWidth={2} name="ROA (%)" />
                 <Line type="monotone" dataKey="roe" stroke="#ec4899" strokeWidth={2} name="ROE (%)" />
