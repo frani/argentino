@@ -9,7 +9,8 @@ import {
   AreaChart,
   Area,
   LineChart,
-  Line
+  Line,
+  Sankey
 } from 'recharts';
 import { TrendingUp, BarChart3, Calculator } from 'lucide-react';
 
@@ -129,7 +130,20 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
       assets,
       netWorth,
       liabilities,
-      periodo: `${b.month}/${b.year}`
+      periodo: `${b.month}/${b.year}`,
+      // Extra details for Sankey
+      finInc: getValue(b, ["INGRESOS FINANCIEROS", "INTERESES GANADOS", "INGRESOS POR INTERESES"]),
+      srvInc: getValue(b, ["INGRESOS POR SERVICIOS", "COMISIONES GANADAS"]),
+      othInc: getValue(b, ["OTROS INGRESOS OPERATIVOS", "OTROS INGRESOS"]),
+      finExp: Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "INTERESES PAGADOS", "EGRESOS POR INTERESES"])),
+      srvExp: Math.abs(getValue(b, ["EGRESOS POR SERVICIOS", "COMISIONES PAGADAS"])),
+      admExp: Math.abs(getValue(b, ["GASTOS DE ADMINISTRACION", "GASTOS ADMINISTRATIVOS"])),
+      perExp: Math.abs(getValue(b, ["GASTOS DE PERSONAL", "GASTOS DE ESTRUCTURA"])),
+      provExp: Math.abs(getValue(b, ["CARGO POR INCOBRABILIDAD", "CARGO POR RIESGO", "PREVISIONES"])),
+      taxExp: Math.abs(getValue(b, ["IMPUESTO A LAS GANANCIAS", "IMPUESTOS"])),
+      othExp: Math.abs(getValue(b, ["OTROS EGRESOS OPERATIVOS", "OTROS EGRESOS"])),
+      amortExp: Math.abs(getValue(b, ["AMORTIZACIONES", "DEPRECIACION"])),
+      netInc: getValue(b, ["RESULTADODEL", "RESULTADONETO", "RESULTADO FINAL", "RESULTADO NETO", "RESULTADO DEL EJERCICIO"])
     };
   };
 
@@ -198,10 +212,208 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
     </div>
   );
 
+  const getSankeyData = () => {
+    if (!latest) return null;
+    const d = calculateMetrics(latest);
+
+    const nodes: { name: string }[] = [];
+    const links: { source: number, target: number, value: number, color: string }[] = [];
+
+    const getNode = (name: string) => {
+      let idx = nodes.findIndex(n => n.name === name);
+      if (idx === -1) {
+        nodes.push({ name });
+        idx = nodes.length - 1;
+      }
+      return idx;
+    };
+
+    const totalIncomes = (d.finInc || 0) + (d.srvInc || 0) + (d.othInc || 0);
+    const opCostsSum = (d.admExp || 0) + (d.perExp || 0) + (d.othExp || 0) + (d.amortExp || 0);
+    const expenses = (d.finExp || 0) + (d.srvExp || 0) + opCostsSum + (d.provExp || 0) + (d.taxExp || 0);
+    
+    // Fallback: Infer net income if it's strictly 0
+    let actualNetInc = d.netInc;
+    if (!actualNetInc || actualNetInc === 0) {
+      actualNetInc = totalIncomes - expenses;
+    }
+
+    let ajustes = actualNetInc - (totalIncomes - expenses);
+
+    let computedIncomes = totalIncomes + (ajustes > 0 ? ajustes : 0);
+    let directCosts = (d.finExp || 0) + (d.srvExp || 0);
+    let opCosts = opCostsSum + (d.provExp || 0) + (d.taxExp || 0) + (ajustes < 0 ? Math.abs(ajustes) : 0);
+
+    // 1. SOURCES -> 'Ingresos'
+    if (d.finInc > 0) links.push({ source: getNode("Ingresos Fin."), target: getNode("Ingresos"), value: d.finInc, color: "#fcd34d" });
+    if (d.srvInc > 0) links.push({ source: getNode("Ing. Servicios"), target: getNode("Ingresos"), value: d.srvInc, color: "#60a5fa" });
+    if (d.othInc > 0) links.push({ source: getNode("Otros Ingresos"), target: getNode("Ingresos"), value: d.othInc, color: "#c084fc" });
+    if (ajustes > 0) links.push({ source: getNode("Ajustes Positivos"), target: getNode("Ingresos"), value: ajustes, color: "#a7f3d0" });
+
+    // 2. MIDDLE SPLIT -> 'Ingresos' splits into 'Costo de Ingresos' and 'Margen Bruto'
+    let grossMargin = computedIncomes - directCosts;
+
+    if (grossMargin >= 0) {
+      if (directCosts > 0) {
+        links.push({ source: getNode("Ingresos"), target: getNode("Costo de Ingresos"), value: directCosts, color: "#fca5a5" });
+        // Force the Cost node to stop at the middle column (Depth 2) by flowing it to an invisible spacer
+        links.push({ source: getNode("Costo de Ingresos"), target: getNode("_spacer_costo"), value: directCosts, color: "transparent" });
+      }
+      if (grossMargin > 0) links.push({ source: getNode("Ingresos"), target: getNode("Margen Bruto"), value: grossMargin, color: "#4ade80" });
+
+      // 3. FINAL SPLIT -> 'Margen Bruto' splits into Operative Costs and 'Ganancia Neta'
+      if (grossMargin >= opCosts) {
+         let netProfit = grossMargin - opCosts;
+         if (netProfit > 0) {
+           links.push({ source: getNode("Margen Bruto"), target: getNode("Ganancia Neta"), value: netProfit, color: "#16a34a" });
+         } else {
+           links.push({ source: getNode("Margen Bruto"), target: getNode("Ganancia Neta (Cero)"), value: Math.max(10, computedIncomes * 0.001), color: "#9ca3af" });
+         }
+
+         if (opCostsSum > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Gastos Operativos"), value: opCostsSum, color: "#f87171" });
+         if (d.provExp > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Previsiones"), value: d.provExp, color: "#fca5a5" });
+         if (d.taxExp > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Impuestos"), value: d.taxExp, color: "#9ca3af" });
+         if (ajustes < 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Ajustes Negativos"), value: Math.abs(ajustes), color: "#6b7280" });
+      } else {
+         // Loss at Operating level
+         let loss = opCosts - grossMargin;
+         links.push({ source: getNode("Pérdida Neta"), target: getNode("Margen Bruto"), value: loss, color: "#dc2626" });
+         
+         if (opCostsSum > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Gastos Operativos"), value: opCostsSum, color: "#f87171" });
+         if (d.provExp > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Previsiones"), value: d.provExp, color: "#fca5a5" });
+         if (d.taxExp > 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Impuestos"), value: d.taxExp, color: "#9ca3af" });
+         if (ajustes < 0) links.push({ source: getNode("Margen Bruto"), target: getNode("Ajustes Negativos"), value: Math.abs(ajustes), color: "#6b7280" });
+      }
+    } else {
+      // Very rare negative Gross Margin
+      let grossLoss = Math.abs(grossMargin);
+      links.push({ source: getNode("Pérdida Bruta"), target: getNode("Ingresos"), value: grossLoss, color: "#dc2626" });
+      links.push({ source: getNode("Ingresos"), target: getNode("Costo de Ingresos"), value: directCosts, color: "#fca5a5" });
+      links.push({ source: getNode("Costo de Ingresos"), target: getNode("_spacer_costo"), value: directCosts, color: "transparent" });
+
+      if (opCosts > 0) {
+         if (opCostsSum > 0) links.push({ source: getNode("Pérdida Operativa"), target: getNode("Gastos Operativos"), value: opCostsSum, color: "#f87171" });
+         if (d.provExp > 0) links.push({ source: getNode("Pérdida Operativa"), target: getNode("Previsiones"), value: d.provExp, color: "#fca5a5" });
+         if (d.taxExp > 0) links.push({ source: getNode("Pérdida Operativa"), target: getNode("Impuestos"), value: d.taxExp, color: "#9ca3af" });
+         if (ajustes < 0) links.push({ source: getNode("Pérdida Operativa"), target: getNode("Ajustes Negativos"), value: Math.abs(ajustes), color: "#6b7280" });
+      }
+    }
+
+    return { nodes, links };
+  };
+
+  const sankeyData = getSankeyData();
+
   if (!latest) return <div className="p-4 italic text-center text-retro-blue">No hay datos disponibles.</div>;
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Sankey Waterfall / Cashflow */}
+      <div className="window bg-white shadow-button">
+        <div className="title-bar !bg-retro-green !text-black flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4" />
+            <span>Flujo de Resultados (Sankey) - {formatDateLabel(latest.year, latest.month)}</span>
+          </div>
+          <span className="text-[10px] font-mono opacity-60">VALORES EN PESOS</span>
+        </div>
+        <div className="p-12 h-[600px] bg-white">
+          {sankeyData && sankeyData.links.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <Sankey
+                data={sankeyData}
+                nodeWidth={25}
+                nodePadding={60}
+                margin={{ top: 40, right: 180, bottom: 40, left: 10 }}
+                link={(props: any) => {
+                  const { sourceX, targetX, sourceY, targetY, linkWidth, payload } = props;
+                  const linkColor = payload.color || "#cccccc";
+                  // Control points for a smooth cubic bezier curve
+                  const cX = sourceX + (targetX - sourceX) / 2;
+                  
+                  return (
+                    <path
+                      d={`
+                        M${sourceX},${sourceY}
+                        C${cX},${sourceY}
+                         ${cX},${targetY}
+                         ${targetX},${targetY}
+                      `}
+                      stroke={linkColor}
+                      strokeWidth={Math.max(2, linkWidth || 1)}
+                      strokeOpacity={0.5}
+                      fill="none"
+                    />
+                  );
+                }}
+                node={(props: any) => {
+                  const { x, y, width, height, payload, containerWidth } = props;
+                  
+                  if (payload.name.startsWith("_spacer")) return <g />;
+                  
+                  const isOut = x + width + 10 > containerWidth - 180;
+                  
+                  let nodeColor = "#9ca3af"; // default grey
+                  if (payload.name === "Ingresos") nodeColor = "#3b82f6"; // Blue
+                  else if (payload.name === "Margen Bruto") nodeColor = "#4ade80"; // Light green
+                  else if (payload.name === "Ganancia Neta") nodeColor = "#16a34a"; // Dark green
+                  else if (payload.name.includes("Pérdida") || payload.name.includes("Costo") || payload.name.includes("Gasto") || payload.name.includes("Prev") || payload.name.includes("Impuest") || payload.name.includes("Ajustes Neg")) nodeColor = "#ef4444"; // Red for all expenses/losses
+                  else if (payload.name.includes("Ing") && !payload.name.includes("Costo")) nodeColor = "#facc15"; // Yellow for sources
+                  
+                  return (
+                    <g>
+                      <rect
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        fill={nodeColor}
+                        stroke="#000"
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={isOut ? x - 12 : x + width + 12}
+                        y={y + height / 2 - 6}
+                        textAnchor={isOut ? 'end' : 'start'}
+                        fill="black"
+                        fontSize={11}
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        dominantBaseline="middle"
+                      >
+                        {payload.name}
+                      </text>
+                      <text
+                        x={isOut ? x - 12 : x + width + 12}
+                        y={y + height / 2 + 8}
+                        textAnchor={isOut ? 'end' : 'start'}
+                        fill="#333"
+                        fontSize={10}
+                        fontWeight="bold"
+                        fontFamily="monospace"
+                        dominantBaseline="middle"
+                      >
+                        $ {(payload.value / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M
+                      </text>
+                    </g>
+                  );
+                }}
+              >
+                <Tooltip 
+                  formatter={(val: number) => [formatCurrency(val), ""]}
+                  contentStyle={{ backgroundColor: '#fff', border: '1px solid #000', fontSize: '10px', fontFamily: 'monospace' }}
+                />
+              </Sankey>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-retro-blue italic">
+              No hay suficientes datos para generar el flujo de caja.
+            </div>
+          )}
+        </div>
+      </div>
+
+
       {/* 6 Grid of Ratios */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* 1. Solvencia y Capital */}
