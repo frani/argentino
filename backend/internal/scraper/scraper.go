@@ -112,7 +112,10 @@ func ScrapeEntityBalance(entity BCRAEntity) ([]EntityBalance, error) {
 		}
 	})
 
-	// Parse table rows globally
+	// Parse table rows globally: track hierarchy based on indentation
+	var parentStack []string
+	var parentIndents []int
+
 	c.OnHTML("tr", func(e *colly.HTMLElement) {
 		var label string
 		var indent int
@@ -143,7 +146,23 @@ func ScrapeEntityBalance(entity BCRAEntity) ([]EntityBalance, error) {
 			   strings.Contains(upperLabel, "ENFASIS") {
 				return
 			}
-			rows = append(rows, rowInfo{Label: label, Indentation: indent, Values: vals})
+
+			// Update stack to current level
+			for len(parentIndents) > 0 && indent <= parentIndents[len(parentIndents)-1] {
+				parentStack = parentStack[:len(parentStack)-1]
+				parentIndents = parentIndents[:len(parentIndents)-1]
+			}
+
+			fullLabel := label
+			if len(parentStack) > 0 {
+				fullLabel = fmt.Sprintf("%s - %s", parentStack[len(parentStack)-1], label)
+			}
+
+			// Push current as potential parent for next rows
+			parentStack = append(parentStack, label)
+			parentIndents = append(parentIndents, indent)
+
+			rows = append(rows, rowInfo{Label: fullLabel, Indentation: indent, Values: vals})
 		}
 	})
 

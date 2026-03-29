@@ -72,8 +72,8 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
     const wholesaleLoans = getValue(b, ["SECTOR MAYORISTA", "PRESTAMOS AL SECTOR PUBLICO", "TITULOS PUBLICOS"]);
 
     // Income/Expense components
-    const financialIncome = getValue(b, ["INGRESOS FINANCIEROS", "INGRESOS POR INTERESES", "INTERESES GANADOS"]);
-    const financialExpenses = Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "EGRESOS POR INTERESES", "INTERESES PAGADOS"]));
+    const financialIncome = getValue(b, ["INGRESOS FINANCIEROS", "INGRESOS FINANCIEROS - POR INTERESES", "INGRESOS POR INTERESES", "INTERESES GANADOS"]);
+    const financialExpenses = Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "EGRESOS FINANCIEROS - POR INTERESES", "EGRESOS POR INTERESES", "INTERESES PAGADOS"]));
     const badDebtExp = Math.abs(getValue(b, ["CARGO POR INCOBRABILIDAD", "CARGO POR RIESGO"]));
     const adminExp = Math.abs(getValue(b, ["GASTOS DE ADMINISTRACION", "GASTOS ADMINISTRATIVOS"]));
     const personalExp = Math.abs(getValue(b, ["GASTOS DE PERSONAL", "GASTOS DE ESTRUCTURA"]));
@@ -132,10 +132,10 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
       liabilities,
       periodo: `${b.month}/${b.year}`,
       // Extra details for Sankey
-      finInc: getValue(b, ["INGRESOS FINANCIEROS", "INTERESES GANADOS", "INGRESOS POR INTERESES"]),
+      finInc: getValue(b, ["INGRESOS FINANCIEROS", "INTERESES GANADOS", "INGRESOS FINANCIEROS - POR INTERESES", "INGRESOS POR INTERESES"]),
       srvInc: getValue(b, ["INGRESOS POR SERVICIOS", "COMISIONES GANADAS"]),
       othInc: getValue(b, ["OTROS INGRESOS OPERATIVOS", "OTROS INGRESOS"]),
-      finExp: Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "INTERESES PAGADOS", "EGRESOS POR INTERESES"])),
+      finExp: Math.abs(getValue(b, ["EGRESOS FINANCIEROS", "INTERESES PAGADOS", "EGRESOS FINANCIEROS - POR INTERESES", "EGRESOS POR INTERESES"])),
       srvExp: Math.abs(getValue(b, ["EGRESOS POR SERVICIOS", "COMISIONES PAGADAS"])),
       admExp: Math.abs(getValue(b, ["GASTOS DE ADMINISTRACION", "GASTOS ADMINISTRATIVOS"])),
       perExp: Math.abs(getValue(b, ["GASTOS DE PERSONAL", "GASTOS DE ESTRUCTURA"])),
@@ -166,27 +166,56 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
     }
   };
 
-  const allRows: { label: string; indentation: number }[] = [];
-  const rowMap = new Map<string, { label: string; indentation: number }>();
+  const cleanLabel = (label: string) => {
+    let clean = label;
+    if (label.includes(" - ")) {
+      const parts = label.split(" - ");
+      clean = parts[parts.length - 1].trim();
+    }
+
+    const fixSpaced = (s: string) => {
+      const spaces = (s.match(/ /g) || []).length;
+      if (spaces > 0 && spaces >= (s.length - spaces - 1)) {
+        return s.replace(/\s+/g, '');
+      }
+      if (s.includes("  ")) {
+        return s.split(/\s{2,}/).map(word => {
+          const wSpaces = (word.match(/ /g) || []).length;
+          if (wSpaces > 0 && wSpaces >= (word.length - wSpaces - 1)) {
+            return word.replace(/\s+/g, '');
+          }
+          return word;
+        }).join(" ");
+      }
+      return s;
+    };
+
+    return fixSpaced(clean);
+  };
+
+  const allRows: { originalLabel: string; displayLabel: string; indentation: number }[] = [];
+  const rowMap = new Map<string, any>();
 
   const referenceBalance = balances.reduce((prev, current) => 
     (prev.line_items?.length || 0) > (current.line_items?.length || 0) ? prev : current
   , balances[0]);
 
   const isIrrelevant = (label: string) => {
-    const upper = label.toUpperCase();
-    return upper.includes("FAVORABLE") || 
-           upper.includes("SALVEDAD") || 
-           upper.includes("CIERRE DE EJERCICIO") ||
-           upper.includes("ABSTENCION") ||
-           upper.includes("ADVERSA") ||
-           upper.includes("ENFASIS");
+    const norm = label.replace(/[\s\.\-]+/g, '').toUpperCase();
+    return norm.includes("FAVORABLE") || 
+           norm.includes("SALVEDAD") || 
+           norm.includes("CIERREDEEJERCICIO") ||
+           norm.includes("ABSTENCION") || 
+           norm.includes("ADVERSA") || 
+           norm.includes("ENFASIS");
   };
 
   referenceBalance.line_items?.filter(item => !isIrrelevant(item.label)).forEach(item => {
     if (!rowMap.has(item.label)) {
-      rowMap.set(item.label, { label: item.label, indentation: item.indentation });
-      allRows.push({ label: item.label, indentation: item.indentation });
+      const displayLabel = cleanLabel(item.label);
+      const row = { originalLabel: item.label, displayLabel, indentation: item.indentation };
+      rowMap.set(item.label, row);
+      allRows.push(row);
     }
   });
 
@@ -523,10 +552,10 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
               {allRows.map((row, rowIndex) => (
                 <tr key={rowIndex} className={`border-b border-gray-200 hover:bg-yellow-50 ${row.indentation <= 1 ? 'font-bold bg-gray-50' : ''}`}>
                   <td className="p-1 border-r border-gray-300 truncate whitespace-pre" style={{ paddingLeft: `${row.indentation * 12 + 4}px` }}>
-                    {row.label}
+                    {row.displayLabel}
                   </td>
                   {sortedBalances.map(b => {
-                    const item = b.line_items?.find(li => li.label === row.label);
+                    const item = b.line_items?.find(li => li.label === row.originalLabel);
                     return (
                       <td key={`${b.month}-${b.year}`} className={`p-1 border-r border-gray-200 text-right ${item && item.value < 0 ? 'text-red-600' : ''}`}>
                         {item ? formatCurrency(item.value) : "-"}
