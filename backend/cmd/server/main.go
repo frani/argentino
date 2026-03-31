@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"time"
 )
 
 func main() {
@@ -26,6 +27,21 @@ func main() {
 
 	service := db.NewService(database)
 	mcpServer := mcp.NewServer(service)
+
+	// Background Hourly Sync
+	go func() {
+		log.Println("Starting background sync ticker (1 hour interval)")
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		// Run once on startup
+		mcpServer.SyncData()
+
+		for range ticker.C {
+			log.Println("Global ticker triggered: Syncing all data...")
+			mcpServer.SyncData()
+		}
+	}()
 
 	http.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		// Enable CORS for frontend

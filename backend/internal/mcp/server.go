@@ -130,10 +130,10 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (i
 	}
 
 	if p.Name == "sync_bcra_data" {
-		go s.syncData()
+		go s.SyncData()
 		return map[string]interface{}{
 			"content": []map[string]interface{}{
-				{"type": "text", "text": "Sincronización iniciada en segundo plano."},
+				{"type": "text", "text": "Sincronización global iniciada (Agro, FX, Entidades)."},
 			},
 		}, nil
 	}
@@ -252,34 +252,84 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (i
 		}, nil
 	}
 
+	if p.Name == "sync_agro_prices" {
+		go s.syncAgroPrices()
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "Sincronización de precios del Agro iniciada."},
+			},
+		}, nil
+	}
+
+	if p.Name == "get_agro_prices" {
+		prices, err := s.Service.GetLatestAgroPrices(ctx)
+		if err != nil {
+			return nil, err
+		}
+		pricesJSON, _ := json.Marshal(prices)
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": string(pricesJSON)},
+			},
+		}, nil
+	}
+
+	if p.Name == "get_agro_history" {
+		var args struct {
+			Ticker    string `json:"ticker"`
+			Days      int    `json:"days"`
+			StartDate string `json:"startDate"`
+			EndDate   string `json:"endDate"`
+		}
+		json.Unmarshal(p.Arguments, &args)
+		history, err := s.Service.GetAgroPriceHistory(ctx, args.Ticker, args.Days, args.StartDate, args.EndDate)
+		if err != nil {
+			return nil, err
+		}
+		histJSON, _ := json.Marshal(history)
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": string(histJSON)},
+			},
+		}, nil
+	}
+
+	if p.Name == "seed_agro_history" {
+		go s.seedAgroHistory()
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "Sembrado de historial del Agro iniciado (Matba Rofex)."},
+			},
+		}, nil
+	}
+
 	return nil, fmt.Errorf("tool not found")
 
 }
 
-func (s *Server) syncData() {
-	logPrefix := "[Sync]"
-	fmt.Println(logPrefix, "Starting sync...")
-	
+func (s *Server) SyncData() {
+	logPrefix := "[SyncAll]"
+	fmt.Println(logPrefix, "Starting global data sync (Agro, FX, BCRA)...")
+
+	// 1. Sync Agro Prices (updates snapshot and triggers historical seeding)
+	s.syncAgroPrices()
+
+	// 2. Sync FX Rates
+	s.syncFXRates()
+
+	// 3. Sync BCRA Entities
 	ctx := context.Background()
 	
-	// Fetch updated_at map from DB
+	// Fetch updated_at map from DB to skip recently updated ones
 	rows, err := s.Service.DB.QueryContext(ctx, "SELECT bco_code, updated_at FROM entities")
-	if err != nil {
-		fmt.Println(logPrefix, "Error fetching entities from DB:", err)
-		// We can gracefully continue without the map, or maybe return.
-		// Let's just create an empty map on error.
-	}
-	
-	updateTimes := make(map[int]time.Time)
+	updateTimes := make(map[string]time.Time)
 	if err == nil {
 		for rows.Next() {
 			var codeStr string
 			var updatedAt sql.NullTime
 			if err := rows.Scan(&codeStr, &updatedAt); err == nil {
-				var code int
-				fmt.Sscanf(codeStr, "%d", &code)
 				if updatedAt.Valid {
-					updateTimes[code] = updatedAt.Time
+					updateTimes[codeStr] = updatedAt.Time
 				}
 			}
 		}
@@ -293,14 +343,14 @@ func (s *Server) syncData() {
 	}
 
 	for _, e := range entities {
-		if lastUpdated, exists := updateTimes[e.Codigo]; exists {
-			if time.Since(lastUpdated) < 24*time.Hour {
-				fmt.Println(logPrefix, "Skipping:", e.Denominacion, "(recently updated)")
-				continue
+		codeStr := fmt.Sprintf("%d", e.Codigo)
+		if lastUpdated, exists := updateTimes[codeStr]; exists {
+			if time.Since(lastUpdated) < 1*time.Hour {
+				continue // Skip if updated within the last hour
 			}
 		}
 
-		fmt.Println(logPrefix, "Scraping:", e.Denominacion)
+		fmt.Println(logPrefix, "Scraping BCRA entity:", e.Denominacion)
 		balances, err := scraper.ScrapeEntityBalance(e)
 		if err != nil {
 			fmt.Println(logPrefix, "Error scraping", e.Codigo, ":", err)
@@ -310,12 +360,12 @@ func (s *Server) syncData() {
 			if b.Year == 0 {
 				continue
 			}
-			if err := s.Service.SaveBalance(context.Background(), &b); err != nil {
+			if err := s.Service.SaveBalance(ctx, &b); err != nil {
 				fmt.Println(logPrefix, "Error saving", e.Codigo, b.Year, b.Month, ":", err)
 			}
 		}
 	}
-	fmt.Println(logPrefix, "Sync completed.")
+	fmt.Println(logPrefix, "Global sync completed.")
 }
 
 func (s *Server) sendError(w http.ResponseWriter, id interface{}, code int, message string) {
@@ -414,5 +464,78 @@ func (s *Server) syncFXRates() {
 		return
 	}
 	fmt.Println(logPrefix, "Saved", len(rows), "FX rate rows.")
+}
+
+func (s *Server) syncAgroPrices() {
+	logPrefix := "[SyncAgro]"
+	fmt.Println(logPrefix, "Fetching agricultural prices...")
+
+	prices, err := scraper.FetchAgroPrices()
+	if err != nil {
+		fmt.Println(logPrefix, "Scrape error:", err)
+		return
+	}
+
+	ctx := context.Background()
+	var rows []db.AgroPriceRow
+	for _, p := range prices {
+		rows = append(rows, db.AgroPriceRow{
+			Ticker:   p.Ticker,
+			Price:    p.Price,
+			Unit:     p.Unit,
+			SourceTS: p.SourceTS,
+		})
+	}
+
+	if err := s.Service.SaveAgroPrices(ctx, rows); err != nil {
+		fmt.Println(logPrefix, "Save error:", err)
+		return
+	}
+	fmt.Println(logPrefix, "Saved", len(rows), "agro price rows. Now seeding history...")
+
+	// Also seed history to ensure charts have data
+	s.seedAgroHistory()
+}
+
+func (s *Server) seedAgroHistory() {
+	fmt.Println("[SeedAgro] Starting historical seeding...")
+	symbols := map[string]string{
+		"SOJA":  "I.SOJA",
+		"MAIZ":  "I.MAIZ",
+		"TRIGO": "I.TRIGO",
+	}
+
+	for ticker, symbol := range symbols {
+		fmt.Printf("[SeedAgro] Fetching history for %s (%s)...\n", ticker, symbol)
+		candles, err := scraper.FetchMatbaHistory(symbol)
+		if err != nil {
+			fmt.Printf("[SeedAgro] Error fetching %s: %v\n", ticker, err)
+			continue
+		}
+
+		var rows []db.AgroPriceRow
+		for _, c := range candles {
+			ts, err := time.Parse("2006-01-02 15:04:05", c.Date)
+			if err != nil {
+				continue
+			}
+			rows = append(rows, db.AgroPriceRow{
+				Ticker:   ticker,
+				Price:    c.Close,
+				Unit:     "USD/TN",
+				SourceTS: ts,
+			})
+		}
+
+		if len(rows) > 0 {
+			err = s.Service.SaveAgroPrices(context.Background(), rows)
+			if err != nil {
+				fmt.Printf("[SeedAgro] Error saving %s: %v\n", ticker, err)
+			} else {
+				fmt.Printf("[SeedAgro] Saved %d historical rows for %s.\n", len(rows), ticker)
+			}
+		}
+	}
+	fmt.Println("[SeedAgro] Seeding completed.")
 }
 

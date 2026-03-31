@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
 
 interface Entity {
   uri: string;
@@ -32,6 +32,13 @@ interface MCPContextType {
   fetchLastSyncDate: () => Promise<void>;
   recentlyViewed: { id: string; name: string }[];
   addToRecentlyViewed: (id: string, name: string) => void;
+  // Agro
+  agroData: any[];
+  agroHistory: Record<string, any[]>;
+  loadingAgro: boolean;
+  fetchAgroData: () => Promise<void>;
+  fetchAgroHistory: (ticker: string, days?: number, startDate?: string, endDate?: string) => Promise<any[]>;
+  syncAgroPrices: () => Promise<void>;
 }
 
 const MCPContext = createContext<MCPContextType | undefined>(undefined);
@@ -51,6 +58,17 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Agro State
+  const [agroData, setAgroData] = useState<any[]>([]);
+  const [agroHistory, setAgroHistory] = useState<Record<string, any[]>>({});
+  const [loadingAgro, setLoadingAgro] = useState(false);
+  const [hasFetchedAgro, setHasFetchedAgro] = useState(false);
+
+  // Refs to prevent infinite loops by removing state dependencies from fetchers
+  const isFetchingEntities = useRef(false);
+  const isFetchingMarket = useRef(false);
+  const isFetchingAgro = useRef(false);
+
   const callMCP = async (method: string, params: any = {}) => {
     const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
     const response = await fetch(`${apiBaseUrl}/mcp`, {
@@ -69,7 +87,8 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const fetchEntities = useCallback(async () => {
-    if (hasFetchedEntities || loadingEntities) return; 
+    if (hasFetchedEntities || isFetchingEntities.current) return; 
+    isFetchingEntities.current = true;
     setLoadingEntities(true);
     try {
       const result = await callMCP('resources/list');
@@ -78,16 +97,16 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setHasFetchedEntities(true);
     } catch (e) {
       console.error("Error fetching entities:", e);
-      // Mark as fetched even on error to avoid looping, 
-      // or at least wait for a manual retry.
       setHasFetchedEntities(true); 
     } finally {
       setLoadingEntities(false);
+      isFetchingEntities.current = false;
     }
-  }, [hasFetchedEntities, loadingEntities]);
+  }, [hasFetchedEntities]);
 
   const fetchMarketData = useCallback(async () => {
-    if (hasFetchedMarket || loadingMarket) return;
+    if (hasFetchedMarket || isFetchingMarket.current) return;
+    isFetchingMarket.current = true;
     setLoadingMarket(true);
     try {
       const result = await callMCP('tools/call', { name: 'get_market_overview' });
@@ -101,8 +120,9 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setHasFetchedMarket(true);
     } finally {
       setLoadingMarket(false);
+      isFetchingMarket.current = false;
     }
-  }, [hasFetchedMarket, loadingMarket]);
+  }, [hasFetchedMarket]);
 
   const fetchLastSyncDate = useCallback(async () => {
     try {
@@ -129,7 +149,6 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setBalancesCache(prev => ({ ...prev, [id]: data }));
         return data;
       }
-      // Cache empty result to avoid re-fetching
       setBalancesCache(prev => ({ ...prev, [id]: [] }));
       return [];
     } catch (e) {
@@ -148,6 +167,54 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   }, []);
 
+  // Agro methods
+  const fetchAgroData = useCallback(async () => {
+    if (hasFetchedAgro || isFetchingAgro.current) return;
+    isFetchingAgro.current = true;
+    setLoadingAgro(true);
+    try {
+      const result = await callMCP('tools/call', { name: 'get_agro_prices' });
+      const text = result.content?.[0]?.text;
+      if (text) {
+        setAgroData(JSON.parse(text));
+      }
+      setHasFetchedAgro(true);
+    } catch (e) {
+      console.error("Error fetching agro data:", e);
+    } finally {
+      setLoadingAgro(false);
+      isFetchingAgro.current = false;
+    }
+  }, [hasFetchedAgro]);
+
+  const fetchAgroHistory = useCallback(async (ticker: string, days: number = 30, startDate?: string, endDate?: string) => {
+    try {
+      const result = await callMCP('tools/call', { 
+        name: 'get_agro_history', 
+        arguments: { ticker, days, startDate, endDate } 
+      });
+      const text = result.content?.[0]?.text;
+      if (text) {
+        const data = JSON.parse(text);
+        setAgroHistory(prev => ({ ...prev, [ticker]: data }));
+        return data;
+      }
+      return [];
+    } catch (e) {
+      console.error("Error fetching agro history for:", ticker, e);
+      return [];
+    }
+  }, []);
+
+  const syncAgroPrices = useCallback(async () => {
+    try {
+      await callMCP('tools/call', { name: 'sync_agro_prices' });
+    } catch (e) {
+      console.error("Error syncing agro prices:", e);
+      throw e;
+    }
+  }, []);
+
   return (
     <MCPContext.Provider value={{
       entities,
@@ -161,7 +228,13 @@ export const MCPProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastSyncDate,
       fetchLastSyncDate,
       recentlyViewed,
-      addToRecentlyViewed
+      addToRecentlyViewed,
+      agroData,
+      agroHistory,
+      loadingAgro,
+      fetchAgroData,
+      fetchAgroHistory,
+      syncAgroPrices
     }}>
       {children}
     </MCPContext.Provider>

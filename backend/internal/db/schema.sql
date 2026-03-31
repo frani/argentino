@@ -39,3 +39,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_fx_rates_ticker_side_ts
 CREATE INDEX IF NOT EXISTS idx_fx_rates_ticker_ts
     ON fx_rates (ticker, source_ts DESC);
 
+-- Agricultural commodity prices (Soja, Maiz, Trigo, etc.)
+-- ticker examples: SOJA, MAIZ, TRIGO, GIRASOL, SORGO
+CREATE TABLE IF NOT EXISTS agro_prices (
+    id          BIGSERIAL PRIMARY KEY,
+    ticker      VARCHAR(30)    NOT NULL,
+    price       NUMERIC(15, 4) NOT NULL,
+    unit        VARCHAR(10)    DEFAULT 'USD/TN', -- standard is USD per tonne
+    source_ts   TIMESTAMP WITH TIME ZONE NOT NULL,
+    fetched_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Avoid duplicates
+CREATE UNIQUE INDEX IF NOT EXISTS ux_agro_prices_ticker_ts
+    ON agro_prices (ticker, source_ts);
+
+-- Index for efficient latest queries
+CREATE INDEX IF NOT EXISTS idx_agro_prices_ticker_ts
+    ON agro_prices (ticker, source_ts DESC);
+

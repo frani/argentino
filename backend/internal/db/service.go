@@ -294,7 +294,7 @@ func (s *Service) GetFXRateHistory(ctx context.Context, ticker string, days int)
 		SELECT ticker, side, value, source_ts, fetched_at
 		FROM fx_rates
 		WHERE ticker = $1
-		  AND source_ts >= NOW() - ($2 || ' days')::interval
+		  AND source_ts >= NOW() - ($2 * interval '1 day')
 		ORDER BY source_ts ASC, side ASC
 	`
 	rows, err := s.DB.QueryContext(ctx, query, ticker, days)
@@ -307,6 +307,101 @@ func (s *Service) GetFXRateHistory(ctx context.Context, ticker string, days int)
 	for rows.Next() {
 		var r FXRateRow
 		if err := rows.Scan(&r.Ticker, &r.Side, &r.Value, &r.SourceTS, &r.FetchedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, nil
+}
+
+// AgroPriceRow represents a single row in the agro_prices table.
+type AgroPriceRow struct {
+	Ticker    string    `json:"ticker"`
+	Price     float64   `json:"price"`
+	Unit      string    `json:"unit"`
+	SourceTS  time.Time `json:"source_ts"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// SaveAgroPrices upserts a batch of agricultural price rows.
+func (s *Service) SaveAgroPrices(ctx context.Context, rows []AgroPriceRow) error {
+	query := `
+		INSERT INTO agro_prices (ticker, price, unit, source_ts)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (ticker, source_ts) DO NOTHING
+	`
+	for _, r := range rows {
+		if _, err := s.DB.ExecContext(ctx, query, r.Ticker, r.Price, r.Unit, r.SourceTS); err != nil {
+			return fmt.Errorf("SaveAgroPrices %s: %w", r.Ticker, err)
+		}
+	}
+	return nil
+}
+
+// GetLatestAgroPrices returns the most recent price for each agricultural commodity.
+func (s *Service) GetLatestAgroPrices(ctx context.Context) ([]AgroPriceRow, error) {
+	query := `
+		SELECT DISTINCT ON (ticker)
+			ticker, price, unit, source_ts, fetched_at
+		FROM agro_prices
+		ORDER BY ticker, source_ts DESC
+	`
+	rows, err := s.DB.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []AgroPriceRow
+	for rows.Next() {
+		var r AgroPriceRow
+		if err := rows.Scan(&r.Ticker, &r.Price, &r.Unit, &r.SourceTS, &r.FetchedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, nil
+}
+
+// GetAgroPriceHistory returns snapshots for a given grain, either by last N days or a specific date range.
+func (s *Service) GetAgroPriceHistory(ctx context.Context, ticker string, days int, start, end string) ([]AgroPriceRow, error) {
+	var query string
+	var args []interface{}
+	args = append(args, ticker)
+
+	if start != "" && end != "" {
+		query = `
+			SELECT ticker, price, unit, source_ts, fetched_at
+			FROM agro_prices
+			WHERE ticker = $1
+			  AND source_ts BETWEEN $2 AND $3
+			ORDER BY source_ts ASC
+		`
+		args = append(args, start, end)
+	} else {
+		if days <= 0 {
+			days = 90
+		}
+		query = `
+			SELECT ticker, price, unit, source_ts, fetched_at
+			FROM agro_prices
+			WHERE ticker = $1
+			  AND source_ts >= NOW() - ($2 * interval '1 day')
+			ORDER BY source_ts ASC
+		`
+		args = append(args, days)
+	}
+
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []AgroPriceRow
+	for rows.Next() {
+		var r AgroPriceRow
+		if err := rows.Scan(&r.Ticker, &r.Price, &r.Unit, &r.SourceTS, &r.FetchedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

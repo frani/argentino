@@ -2,12 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, NavLink, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { useMCP } from './hooks/useMCP';
 import { Window, RetroButton } from './components/RetroUI';
-import { RefreshCw, LayoutGrid, Globe, ChevronRight, Search, Columns, Menu, X, DollarSign } from 'lucide-react';
+import { RefreshCw, LayoutGrid, Globe, ChevronRight, Search, Landmark, Menu, X, DollarSign } from 'lucide-react';
 import { EntityAnalysis } from './components/EntityAnalysis';
 import { MarketOverview } from './components/MarketOverview';
 import { ComparativeTable } from './components/ComparativeTable';
 import { DollarView } from './components/DollarView';
+import { Home } from './components/Home';
+import { AgroView } from './components/AgroView';
 import { useMCPContext } from './contexts/MCPContext';
+import { Sprout } from 'lucide-react';
 
 function App() {
   const { call } = useMCP();
@@ -23,13 +26,12 @@ function App() {
     recentlyViewed
   } = useMCPContext();
 
-  const [entitySearchName, setEntitySearchName] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const syncData = async () => {
     try {
       await call('tools/call', { name: 'sync_bcra_data' });
-      alert("Sincronización iniciada!");
+      alert("Sincronización global iniciada (BCRA, Agro, FX)!");
     } catch (e) {
       console.error(e);
     }
@@ -42,7 +44,8 @@ function App() {
   }, [fetchEntities, fetchMarketData, fetchLastSyncDate]);
 
   const lastSyncDateObj = lastSyncDate ? new Date(lastSyncDate) : null;
-  const isSyncDisabled = lastSyncDateObj ? (new Date().getTime() - lastSyncDateObj.getTime() < 24 * 60 * 60 * 1000) : false;
+  // Threshold: 1 hour (3600000 ms)
+  const isSyncDisabled = lastSyncDateObj ? (new Date().getTime() - lastSyncDateObj.getTime() < 1 * 60 * 60 * 1000) : false;
 
   const topEntities = entities
     .filter(e => e.annotations?.latest_assets)
@@ -65,25 +68,27 @@ function App() {
           >
             {sidebarOpen ? <X className="w-3 h-3" /> : <Menu className="w-3 h-3" />}
           </button>
-          <RetroButton className="font-bold px-2 hidden sm:block">Inicio</RetroButton>
+          <Link to="/">
+            <RetroButton className="font-bold px-2 hidden sm:block">Inicio</RetroButton>
+          </Link>
           <div className="hidden sm:block w-[1px] bg-gray-600 self-stretch mx-1 shadow-button" />
           <RetroButton onClick={() => window.location.reload()} disabled={globalLoading} className="px-2">
             <RefreshCw className={`w-3 h-3 ${globalLoading ? 'animate-spin' : ''}`} />
           </RetroButton>
           <div className="flex items-center gap-2 border-l border-black/10 pl-2">
             <RetroButton onClick={syncData} className="px-1 md:px-2 text-[10px] md:text-xs" disabled={isSyncDisabled || globalLoading}>
-              <span className="hidden xs:inline">Sincronizar BCRA</span>
+              <span className="hidden xs:inline">Sincronizar Todo</span>
               <span className="xs:hidden">Sync</span>
             </RetroButton>
             {lastSyncDateObj && (
-              <span className="text-[10px] opacity-70 hidden lg:inline">
-                Última sync: {lastSyncDateObj.toLocaleDateString()}
+              <span className="text-[10px] opacity-70 hidden sm:inline ml-1 border-l border-black/20 pl-2">
+                Última sync: {lastSyncDateObj.toLocaleString()}
               </span>
             )}
           </div>
         </div>
         <div className="text-[9px] md:text-[10px] font-bold bg-pastel-yellow border-black border px-2 shadow-button truncate max-w-[120px] sm:max-w-none">
-          FinArgentina v0.3.0
+          Argentino v1.0.0
         </div>
       </div>
 
@@ -98,10 +103,11 @@ function App() {
           <Window title="Explorador" className="bg-pastel-pink/50 h-full w-full">
             <div className="flex flex-col gap-1">
               {[
-                { to: "/general", icon: Globe, label: "General" },
-                { to: "/entidades", icon: LayoutGrid, label: "Entidades", end: true },
-                { to: "/comparativa", icon: Columns, label: "Tabla Comparativa" },
-                { to: "/dolar", icon: DollarSign, label: "Cotización Dólar" }
+                { to: "/", icon: LayoutGrid, label: "Inicio", end: true },
+                { to: "/general", icon: Globe, label: "Vista General" },
+                { to: "/entidades", icon: Landmark, label: "Bancos" },
+                { to: "/dolar", icon: DollarSign, label: "Cotización Dólar" },
+                { to: "/agro", icon: Sprout, label: "Agro" }
               ].map(link => (
                 <NavLink 
                   key={link.to}
@@ -146,7 +152,7 @@ function App() {
       </div>
 
       <div className="bg-retro-bg border-t-2 border-white shadow-button p-1 text-[9px] md:text-[10px] flex justify-between shrink-0">
-        <span className="truncate mr-2">Valores en ARS</span>
+        <span className="truncate mr-2">Los Valores de los bancos se muestran en Miles y en ARS (pesos)</span>
         <div className="flex gap-2 md:gap-4 shrink-0">
           <span>{new Date().toLocaleDateString()}</span>
           <span className="hidden xs:inline">{new Date().toLocaleTimeString()}</span>
@@ -159,7 +165,7 @@ function App() {
     <BrowserRouter>
       {renderLayout(
         <Routes>
-          <Route path="/" element={<Navigate to="/general" replace />} />
+          <Route path="/" element={<Home />} />
           <Route path="/general" element={
             <Window title="Análisis Macroeconómico del Sistema" className="bg-pastel-yellow h-full">
               {loadingMarket ? (
@@ -171,63 +177,10 @@ function App() {
           } />
           
           <Route path="/entidades" element={
-            <Window title="Nómina y Ranking de Entidades" className="bg-pastel-yellow h-full">
-              <div className="h-full flex flex-col">
-                <div className="mb-4 p-2 bg-retro-bg border-2 border-black shadow-button flex items-center gap-2 shrink-0">
-                  <Search className="w-4 h-4 text-black" />
-                  <input
-                    type="text"
-                    placeholder="Buscar entidad por nombre..."
-                    value={entitySearchName}
-                    onChange={(e) => setEntitySearchName(e.target.value)}
-                    className="bg-white px-2 py-1 flex-1 text-xs font-bold font-mono text-black border-2 border-black shadow-[inset_2px_2px_0px_rgba(0,0,0,0.1)] focus:outline-none focus:bg-pastel-blue/20"
-                  />
-                </div>
-                <div className="overflow-auto flex-1 bg-white border-2 border-black shadow-button min-h-0">
-                  <table className="w-full border-collapse text-left text-xs relative">
-                    <thead className="sticky top-0 z-10 shadow-[0_2px_0_0_black]">
-                      <tr className="bg-gray-100 italic">
-                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">#</th>
-                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Denominación</th>
-                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Activo (Últ.)</th>
-                        <th className="p-2 bg-gray-100 border-b-2 border-black shadow-sm">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entities
-                        .filter(e => e.name.toLowerCase().includes(entitySearchName.toLowerCase()))
-                        .map((e, i) => {
-                      const id = e.uri.split('/').pop();
-                      return (
-                        <tr key={e.uri} className="border-b border-gray-300 hover:bg-pastel-blue">
-                          <td className="p-2 font-mono">{i + 1}</td>
-                          <td className="p-2 font-bold">{e.name.replace('Balances de ', '')}</td>
-                          <td className="p-2 font-mono">
-                            {e.annotations?.latest_assets ? 
-                              new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', notation: 'compact' }).format(e.annotations.latest_assets) 
-                              : '-'}
-                          </td>
-                          <td className="p-2">
-                            <Link to={`/entidades/${id}`}>
-                              <RetroButton className="text-[10px] py-0 px-2">Ver Detalle</RetroButton>
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              </div>
-            </Window>
-          } />
-          
-          <Route path="/comparativa" element={
             <Window 
               title={
                 <div className="flex items-center gap-2">
-                  <Columns className="w-4 h-4" />
-                  <span>Tabla Comparativa de Entidades</span>
+                  <span>Bancos</span>
                 </div>
               } 
               className="bg-pastel-pink h-full"
@@ -247,6 +200,20 @@ function App() {
               className="bg-pastel-yellow h-full"
             >
               <DollarView />
+            </Window>
+          } />
+          
+          <Route path="/agro" element={
+            <Window
+              title={
+                <div className="flex items-center gap-2">
+                  <Sprout className="w-4 h-4" />
+                  <span>Mercado de Granos</span>
+                </div>
+              }
+              className="bg-pastel-green h-full"
+            >
+              <AgroView />
             </Window>
           } />
 
@@ -295,7 +262,7 @@ function EntityDetailWrapper() {
     <Window title={`Detalle: ${entityName}`} className="bg-pastel-blue h-full overflow-y-auto">
       <div className="flex flex-col gap-4">
         <RetroButton onClick={() => navigate('/entidades')} className="w-fit font-bold text-xs">
-          ← Volver al Ranking
+          ← Volver a Bancos
         </RetroButton>
         
         {loading ? (

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useMCPContext } from '../contexts/MCPContext';
 import { calculateMetrics, AVAILABLE_COLUMNS, Balance } from '../utils/financialMetrics';
+import { Link } from 'react-router-dom';
 import { Window, RetroButton } from './RetroUI';
 import { Settings2, Search, ArrowUpDown, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -40,10 +41,20 @@ export const ComparativeTable: React.FC = () => {
         });
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
-        const periods = JSON.parse(data.result.content[0].text);
-        setAvailablePeriods(periods);
-        if (periods.length > 0) {
-          setSelectedPeriod(periods[0]);
+        
+        const content = data.result?.content?.[0]?.text;
+        if (content) {
+          try {
+            const periods = JSON.parse(content);
+            if (Array.isArray(periods)) {
+              setAvailablePeriods(periods);
+              if (periods.length > 0) {
+                setSelectedPeriod(periods[0]);
+              }
+            }
+          } catch (e) {
+            console.error("JSON parse error in periods:", e);
+          }
         }
       } catch (e: any) {
         console.error("Error fetching periods:", e);
@@ -73,8 +84,17 @@ export const ComparativeTable: React.FC = () => {
         const data = await response.json();
         if (data.error) throw new Error(data.error.message);
         
-        const rawBalances = JSON.parse(data.result.content[0].text);
-        setLatestBalances(rawBalances);
+        const content = data.result?.content?.[0]?.text;
+        if (content) {
+          try {
+            const rawBalances = JSON.parse(content);
+            if (Array.isArray(rawBalances)) {
+              setLatestBalances(rawBalances);
+            }
+          } catch (e) {
+            console.error("JSON parse error in balances:", e);
+          }
+        }
       } catch (e: any) {
         console.error(e);
         setError(e.message);
@@ -86,13 +106,15 @@ export const ComparativeTable: React.FC = () => {
   }, [selectedPeriod]);
 
   const metricsData = useMemo(() => {
-    return latestBalances.map(b => calculateMetrics(b));
+    if (!Array.isArray(latestBalances)) return [];
+    return latestBalances.map(b => b ? calculateMetrics(b) : null).filter(Boolean) as any[];
   }, [latestBalances]);
 
   const filteredData = useMemo(() => {
+    if (!Array.isArray(metricsData)) return [];
     let result = metricsData.filter(m => 
-      m.entity_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.entity_code.toString().includes(searchTerm)
+      m && ((m.entity_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (m.entity_code || '').toString().includes(searchTerm))
     );
 
     if (sortConfig) {
@@ -242,24 +264,43 @@ export const ComparativeTable: React.FC = () => {
                   </th>
                 );
               })}
+              <th className="p-2 border-b-2 border-black bg-gray-200 text-center w-24">
+                Acciones
+              </th>
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((row, i) => (
-              <tr key={row.entity_code} className="border-b border-gray-300 hover:bg-pastel-blue transition-colors group">
+            {filteredData.length > 0 ? filteredData.map((row, i) => (
+              <tr key={row.entity_code || i} className="border-b border-gray-300 hover:bg-pastel-blue transition-colors group">
                 <td 
-                  className="p-2 font-bold bg-white group-hover:bg-pastel-blue sticky left-0 border-r-2 border-black/10 z-10 truncate max-w-[200px] cursor-help"
-                  title={row.entity_name}
+                  className="p-2 font-bold bg-white group-hover:bg-pastel-blue sticky left-0 border-r-2 border-black/10 z-10 truncate max-w-[200px]"
                 >
-                  {row.entity_name.replace('Balances de ', '')}
+                  <Link 
+                    to={`/entidades/${row.entity_code}`} 
+                    className="hover:underline hover:text-retro-blue truncate block"
+                    title={row.entity_name || ''}
+                  >
+                    {(row.entity_name || '').replace('Balances de ', '') || 'Entidad Desconocida'}
+                  </Link>
                 </td>
                 {selectedColumnIds.map(id => (
                   <td key={id} className={`p-2 font-mono text-right ${(row as any)[id] < 0 ? 'text-red-500' : ''}`}>
                     {formatValue(id, (row as any)[id])}
                   </td>
                 ))}
+                <td className="p-2 text-center group-hover:bg-pastel-blue">
+                  <Link to={`/entidades/${row.entity_code}`}>
+                    <RetroButton className="text-[10px] py-0 px-2">Ver Detalles</RetroButton>
+                  </Link>
+                </td>
               </tr>
-            ))}
+            )) : (
+              <tr>
+                <td colSpan={selectedColumnIds.length + 2} className="p-10 text-center italic opacity-40">
+                  No se encontraron entidades con los filtros aplicados.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

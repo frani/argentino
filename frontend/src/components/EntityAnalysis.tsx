@@ -21,6 +21,10 @@ interface EntityAnalysisProps {
 }
 
 export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
+  if (!Array.isArray(balances) || balances.length === 0) {
+    return <div className="p-10 text-center italic opacity-40">No hay datos disponibles para esta entidad.</div>;
+  }
+
   // Sort balances chronologically
   const sortedBalances = [...balances].sort((a, b) => {
     if (a.year !== b.year) return a.year - b.year;
@@ -28,12 +32,14 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances }) => {
   });
 
   const latest = [...balances].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month))[0];
-  const [sankeyDate, setSankeyDate] = useState(`${latest.year}-${latest.month}`);
+  const [sankeyDate, setSankeyDate] = useState(latest ? `${latest.year}-${latest.month}` : '');
 
-  const selectedSankeyBalance = balances.find(b => `${b.year}-${b.month}` === sankeyDate) || latest;
+  const selectedSankeyBalance = balances.find(b => b && `${b.year}-${b.month}` === sankeyDate) || latest;
 
-  const currentProcessedData = sortedBalances.map((b, i) => calculateMetrics(b, i > 0 ? sortedBalances[i-1] : undefined));
-  const current = currentProcessedData[currentProcessedData.length - 1];
+  const currentProcessedData = sortedBalances.map((b, i) => b ? calculateMetrics(b, i > 0 ? sortedBalances[i-1] : undefined) : null).filter(Boolean) as any[];
+  const current = currentProcessedData.length > 0 ? currentProcessedData[currentProcessedData.length - 1] : null;
+
+  if (!latest || !current) return <div className="p-10 text-center italic opacity-40">Error al procesar los datos de la entidad.</div>;
 
   const formatCurrency = (val: number) => {
     if (val === 0 || val === undefined) return "-";
