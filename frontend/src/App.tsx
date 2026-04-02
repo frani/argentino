@@ -85,10 +85,13 @@ function App() {
                 Última sync: {lastSyncDateObj.toLocaleString()}
               </span>
             )}
+            <RetroButton className="px-1 md:px-2 text-[10px] md:text-xs bg-pastel-green">
+              <a href="https://github.com/frani/argentino" target="_blank" rel="noopener noreferrer">Github</a>
+            </RetroButton>
           </div>
         </div>
-        <div className="text-[9px] md:text-[10px] font-bold bg-pastel-yellow border-black border px-2 shadow-button truncate max-w-[120px] sm:max-w-none">
-          Argentino v1.0.0
+        <div className="text-[9px] md:text-[10px] font-bold bg-pastel-yellow border-black border px-1 py-1 shadow-button truncate max-w-[120px] sm:max-w-none">
+          Argentino v0.4.0
         </div>
       </div>
 
