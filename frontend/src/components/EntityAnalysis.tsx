@@ -307,8 +307,7 @@ export const EntityAnalysis: React.FC<EntityAnalysisProps> = ({ balances, header
 
         {/* 2. Calidad de Activos */}
         <RatioBox title="Calidad de Activos" color="bg-pastel-pink" headerColor="!bg-pastel-pink-dark">
-          <RatioItem label="Morosidad (NPL)" value={`${current.morosidad.toFixed(2)}%`} desc="Mora / Cartera" />
-          <RatioItem label="Cobertura" value={current.cobertura !== 0 ? `${current.cobertura.toFixed(1)}%` : "N/D"} desc="Prev / Mora" />
+          <RatioItem label="Morosidad (BCRA)" value={`${current.morosidad.toFixed(2)}%`} desc="Sit 2-5 / Total" />
           <RatioItem label="Carga Incob." value={`${current.cargaIncob.toFixed(2)}%`} desc="Cargo / Ing. Fin" />
           <RatioItem label="Concentración" value={`${current.concentracion.toFixed(1)}%`} desc="Mayorista / Total" />
         </RatioBox>

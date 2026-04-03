@@ -94,15 +94,18 @@ export const calculateMetrics = (b: Balance, prev?: Balance) => {
   const tier1Capital = getValue(b, ["CAPITAL BASICO", "RPC", "CAPITAL NIVEL 1", "RESPONSABILIDAD PATRIMONIAL"]);
   const rwa = getValue(b, ["ACTIVOS PONDERADOS POR RIESGO", "APR", "COMPLEMENTARIO"]) || (assets * 0.8);
 
+  // Morosidad via Central de Deudores BCRA (sit 2-5 = cartera irregular)
+  const deudoresTotalAmt = b.total_debt_amount || 0;
+  const deudoresMorosos = (b.debt_sit_2 || 0) + (b.debt_sit_3 || 0) + (b.debt_sit_4 || 0) + (b.debt_sit_5 || 0);
+
   return {
     // 1. Solvencia y Capital
     tier1Ratio: rwa > 0 ? (tier1Capital / rwa) * 100 : 0,
     leverage: netWorth > 0 ? (assets / netWorth) : 0,
     solvencia: assets > 0 ? (netWorth / assets) * 100 : 0,
 
-    // 2. Calidad de Activos
-    morosidad: loans > 0 ? (nonPerforming / loans) * 100 : 0,
-    cobertura: nonPerforming > 0 ? (provisions / nonPerforming) * 100 : 0,
+    // 2. Calidad de Activos (morosidad desde Central de Deudores BCRA)
+    morosidad: deudoresTotalAmt > 0 ? (deudoresMorosos / deudoresTotalAmt) * 100 : (loans > 0 ? (nonPerforming / loans) * 100 : 0),
     cargaIncob: (financialIncome > 0) ? (badDebtExp / financialIncome) * 100 : 0,
     concentracion: loans > 0 ? (wholesaleLoans / loans) * 100 : (wholesaleLoans / assets) * 100,
 
@@ -166,8 +169,7 @@ export const AVAILABLE_COLUMNS = [
   { id: 'solvencia', label: 'Solvencia (%)', category: 'Solvencia' },
   { id: 'leverage', label: 'Apalancamiento (x)', category: 'Solvencia' },
   { id: 'tier1Ratio', label: 'Capital Tier 1 (%)', category: 'Solvencia' },
-  { id: 'morosidad', label: 'Morosidad (%)', category: 'Calidad' },
-  { id: 'cobertura', label: 'Cobertura (%)', category: 'Calidad' },
+  { id: 'morosidad', label: 'Morosidad BCRA (%)', category: 'Calidad' },
   { id: 'eficiencia', label: 'Eficiencia (%)', category: 'Gestión' },
   { id: 'gastosPersAct', label: 'Gastos Administrativos / Activo (%)', category: 'Gestión' },
   { id: 'roa', label: 'ROA (%)', category: 'Rentabilidad' },

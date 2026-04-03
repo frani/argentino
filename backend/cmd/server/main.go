@@ -25,6 +25,11 @@ func main() {
 		log.Println("Note: schema init failed (might already exist):", err)
 	}
 
+	// Auto-ingest debtor CSV data on every startup (idempotent UPSERT)
+	if err := db.IngestDebtorsFromCSV(database); err != nil {
+		log.Printf("Warning: debtor ingestion failed: %v", err)
+	}
+
 	service := db.NewService(database)
 	mcpServer := mcp.NewServer(service)
 

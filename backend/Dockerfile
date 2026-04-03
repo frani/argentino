@@ -24,6 +24,9 @@ WORKDIR /root/
 # Copy the binary from the builder stage
 COPY --from=builder /app/main .
 
+# Copy debtor CSV data files so they are available at startup
+COPY --from=builder /app/*-DEUDORES.csv* ./
+
 EXPOSE 8080
 
 CMD ["./main"]
