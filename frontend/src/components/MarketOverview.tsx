@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   XAxis,
   YAxis,
@@ -16,7 +16,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import { TrendingUp, BarChart3, Globe, PieChart as PieIcon } from 'lucide-react';
+import { TrendingUp, BarChart3, Globe, PieChart as PieIcon, AlertTriangle } from 'lucide-react';
 
 interface MarketPeriod {
   year: number;
@@ -28,6 +28,19 @@ interface MarketPeriod {
   entity_count: number;
 }
 
+interface SystemDebtorSummary {
+  period_date: string;
+  total_debtors: number;
+  total_debt: number;
+  debt_sit_1: number;
+  debt_sit_2: number;
+  debt_sit_3: number;
+  debt_sit_4: number;
+  debt_sit_5: number;
+  debt_sit_11: number;
+  entity_count: number;
+}
+
 interface MarketOverviewProps {
   data: MarketPeriod[];
   topEntities: { name: string; assets: number }[];
@@ -36,6 +49,37 @@ interface MarketOverviewProps {
 const COLORS = ['#000080', '#008080', '#800080', '#808000', '#008000', '#800000', '#FF00FF', '#00FFFF', '#C0C0C0'];
 
 export const MarketOverview: React.FC<MarketOverviewProps> = ({ data, topEntities }) => {
+  const [systemDebtors, setSystemDebtors] = useState<SystemDebtorSummary | null>(null);
+
+  useEffect(() => {
+    const fetchDebtors = async () => {
+      try {
+        const apiBaseUrl = (import.meta as any).env.VITE_API_URL || 'http://localhost:8080';
+        const response = await fetch(`${apiBaseUrl}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: { name: 'get_system_debtors' },
+            id: Date.now(),
+          }),
+        });
+        const data = await response.json();
+        const content = data.result?.content?.[0]?.text;
+        if (content) {
+          const parsed = JSON.parse(content);
+          if (parsed && parsed.total_debt > 0) {
+            setSystemDebtors(parsed);
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching system debtors:", e);
+      }
+    };
+    fetchDebtors();
+  }, []);
+
   if (!data || data.length === 0) {
     return <div className="p-8 text-center animate-pulse text-retro-blue font-bold">Cargando datos del mercado...</div>;
   }
@@ -66,6 +110,20 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ data, topEntitie
     { name: 'Otros (Sistema)', value: othersAssets > 0 ? othersAssets : 0 }
   ];
 
+  // System debtor pie data
+  const debtPieData = systemDebtors ? [
+    { name: 'Normal (1)', value: systemDebtors.debt_sit_1, color: '#22c55e' },
+    { name: 'Riesgo Bajo (2)', value: systemDebtors.debt_sit_2, color: '#eab308' },
+    { name: 'Riesgo Medio (3)', value: systemDebtors.debt_sit_3, color: '#f97316' },
+    { name: 'Riesgo Alto (4)', value: systemDebtors.debt_sit_4, color: '#ef4444' },
+    { name: 'Irrecuperable (5)', value: systemDebtors.debt_sit_5, color: '#7f1d1d' },
+    { name: 'Garantías (11)', value: systemDebtors.debt_sit_11, color: '#3b82f6' },
+  ].filter(d => d.value > 0) : [];
+
+  const systemMorosidad = systemDebtors && systemDebtors.total_debt > 0
+    ? (((systemDebtors.debt_sit_2 || 0) + (systemDebtors.debt_sit_3 || 0) + (systemDebtors.debt_sit_4 || 0) + (systemDebtors.debt_sit_5 || 0)) / systemDebtors.total_debt * 100)
+    : 0;
+
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
       {/* Macro Stats */}
@@ -74,12 +132,13 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ data, topEntitie
           <Globe className="w-4 h-4" />
           <span>Resumen Macro - Sistema Financiero Argentino ({latest.month}/{latest.year})</span>
         </div>
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {[
             { label: "Activo Total Sistema", val: formatCurrency(latest.total_assets), color: "text-retro-blue" },
             { label: "Patrimonio Neto Total", val: formatCurrency(latest.total_net_worth), color: "text-retro-green" },
             { label: "Solvencia Promedio", val: latest.avg_solvency.toFixed(1) + "%", color: "text-purple-700" },
-            { label: "Entidades Registradas", val: latest.entity_count, color: "text-black" }
+            { label: "Entidades Registradas", val: latest.entity_count, color: "text-black" },
+            { label: "Morosidad Sistema (BCRA)", val: systemMorosidad > 0 ? systemMorosidad.toFixed(2) + "%" : "N/D", color: systemMorosidad > 5 ? "text-red-600" : "text-orange-600" },
           ].map((s, i) => (
             <div key={i} className="bg-white p-3 border-2 border-black shadow-button flex flex-col items-center">
               <span className="text-[10px] uppercase font-bold opacity-60 text-center">{s.label}</span>
@@ -183,6 +242,66 @@ export const MarketOverview: React.FC<MarketOverviewProps> = ({ data, topEntitie
           </div>
         </div>
       </div>
+
+      {/* Central de Deudores - Sistema Completo */}
+      {debtPieData.length > 0 && systemDebtors && (
+        <div className="window bg-white h-[450px]">
+          <div className="title-bar !bg-[#ef4444] !text-white flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              <span>Central de Deudores - Sistema Financiero Completo</span>
+            </div>
+            <span className="text-[10px] font-mono opacity-80">
+              {systemDebtors.entity_count} entidades · {new Intl.NumberFormat('es-AR').format(systemDebtors.total_debtors)} deudores · {formatCurrency(systemDebtors.total_debt)} total
+            </span>
+          </div>
+          <div className="p-4 h-full pb-12 flex flex-col md:flex-row gap-4">
+            {/* Pie chart */}
+            <div className="flex-1 h-full min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={debtPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={typeof window !== 'undefined' && window.innerWidth < 768 ? 40 : 70}
+                    outerRadius={typeof window !== 'undefined' && window.innerWidth < 768 ? 70 : 110}
+                    labelLine={false}
+                    label={({name, percent}) => `${name} (${(percent * 100).toFixed(1)}%)`}
+                  >
+                    {debtPieData.map((entry, index) => (
+                      <Cell key={`debt-cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number, name: string) => [formatCurrency(value), name]} />
+                  <Legend wrapperStyle={{ fontSize: '12px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            {/* Summary stats */}
+            <div className="flex flex-col gap-2 justify-center md:w-[280px] shrink-0">
+              <div className="bg-green-50 border-2 border-green-300 p-3 shadow-button">
+                <div className="text-[10px] uppercase font-bold opacity-60">Cartera Normal (Sit 1)</div>
+                <div className="text-lg font-bold text-green-700">{formatCurrency(systemDebtors.debt_sit_1)}</div>
+                <div className="text-[10px] opacity-50">{(systemDebtors.debt_sit_1 / systemDebtors.total_debt * 100).toFixed(1)}% del total</div>
+              </div>
+              <div className="bg-red-50 border-2 border-red-300 p-3 shadow-button">
+                <div className="text-[10px] uppercase font-bold opacity-60">Cartera Irregular (Sit 2-5)</div>
+                <div className="text-lg font-bold text-red-700">{formatCurrency(
+                  (systemDebtors.debt_sit_2 || 0) + (systemDebtors.debt_sit_3 || 0) + (systemDebtors.debt_sit_4 || 0) + (systemDebtors.debt_sit_5 || 0)
+                )}</div>
+                <div className="text-[10px] opacity-50">{systemMorosidad.toFixed(2)}% del total (morosidad)</div>
+              </div>
+              <div className="bg-blue-50 border-2 border-blue-300 p-3 shadow-button">
+                <div className="text-[10px] uppercase font-bold opacity-60">Garantías (Sit 11)</div>
+                <div className="text-lg font-bold text-blue-700">{formatCurrency(systemDebtors.debt_sit_11)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

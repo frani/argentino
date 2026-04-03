@@ -25,11 +25,6 @@ func main() {
 		log.Println("Note: schema init failed (might already exist):", err)
 	}
 
-	// Auto-ingest debtor CSV data on every startup (idempotent UPSERT)
-	if err := db.IngestDebtorsFromCSV(database); err != nil {
-		log.Printf("Warning: debtor ingestion failed: %v", err)
-	}
-
 	service := db.NewService(database)
 	mcpServer := mcp.NewServer(service)
 
@@ -41,6 +36,11 @@ func main() {
 
 		// Run once on startup
 		mcpServer.SyncData()
+
+		// Ingest debtors AFTER entity sync so entities exist in DB
+		if err := db.IngestDebtorsFromCSV(database); err != nil {
+			log.Printf("Warning: debtor ingestion failed: %v", err)
+		}
 
 		for range ticker.C {
 			log.Println("Global ticker triggered: Syncing all data...")

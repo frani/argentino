@@ -209,6 +209,23 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (i
 		}, nil
 	}
 
+	if p.Name == "get_system_debtors" {
+		summary, err := s.Service.GetSystemDebtorSummary(ctx)
+		if err != nil {
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{"type": "text", "text": "{}"},
+				},
+			}, nil
+		}
+		summaryJSON, _ := json.Marshal(summary)
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": string(summaryJSON)},
+			},
+		}, nil
+	}
+
 	if p.Name == "sync_fx_rates" {
 		go s.syncFXRates()
 		return map[string]interface{}{

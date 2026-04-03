@@ -444,3 +444,46 @@ func atoi(s string) int {
 	fmt.Sscanf(s, "%d", &i)
 	return i
 }
+
+type SystemDebtorSummary struct {
+	PeriodDate     string  `json:"period_date"`
+	TotalDebtors   int     `json:"total_debtors"`
+	TotalDebt      float64 `json:"total_debt"`
+	DebtSit1       float64 `json:"debt_sit_1"`
+	DebtSit2       float64 `json:"debt_sit_2"`
+	DebtSit3       float64 `json:"debt_sit_3"`
+	DebtSit4       float64 `json:"debt_sit_4"`
+	DebtSit5       float64 `json:"debt_sit_5"`
+	DebtSit11      float64 `json:"debt_sit_11"`
+	EntityCount    int     `json:"entity_count"`
+}
+
+func (s *Service) GetSystemDebtorSummary(ctx context.Context) (*SystemDebtorSummary, error) {
+	query := `
+		SELECT 
+			period_date,
+			COALESCE(SUM(debtor_count), 0),
+			COALESCE(SUM(total_debt_amount), 0),
+			COALESCE(SUM(debt_sit_1), 0),
+			COALESCE(SUM(debt_sit_2), 0),
+			COALESCE(SUM(debt_sit_3), 0),
+			COALESCE(SUM(debt_sit_4), 0),
+			COALESCE(SUM(debt_sit_5), 0),
+			COALESCE(SUM(debt_sit_11), 0),
+			COUNT(*)
+		FROM debtor_summaries
+		WHERE period_date = (SELECT MAX(period_date) FROM debtor_summaries)
+		GROUP BY period_date
+	`
+	var r SystemDebtorSummary
+	err := s.DB.QueryRowContext(ctx, query).Scan(
+		&r.PeriodDate, &r.TotalDebtors, &r.TotalDebt,
+		&r.DebtSit1, &r.DebtSit2, &r.DebtSit3, &r.DebtSit4, &r.DebtSit5, &r.DebtSit11,
+		&r.EntityCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
