@@ -11,9 +11,10 @@ interface WindowProps {
   children: ReactNode;
   className?: string;
   title?: ReactNode;
+  onClose?: () => void;
 }
 
-export const Window = ({ children, className, title }: WindowProps) => {
+export const Window = ({ children, className, title, onClose }: WindowProps) => {
   const [isMinimized, setIsMinimized] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
 
@@ -32,7 +33,10 @@ export const Window = ({ children, className, title }: WindowProps) => {
               _
             </button>
             <button 
-              onClick={() => setIsClosed(true)}
+              onClick={() => {
+                if (onClose) onClose();
+                else setIsClosed(true);
+              }}
               className="bg-retro-bg text-black border border-black px-1 text-xs pb-0.5 leading-none shadow-button active:shadow-button-pressed focus:outline-none"
             >
               ×

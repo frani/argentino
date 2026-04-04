@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Link, NavLink, useParams, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useParams, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useMCP } from './hooks/useMCP';
 import { Window, RetroButton } from './components/RetroUI';
-import { RefreshCw, LayoutGrid, Globe, ChevronRight, Search, Landmark, Menu, X, DollarSign } from 'lucide-react';
+import { RefreshCw, DollarSign, Menu, X, Sprout } from 'lucide-react';
 import { EntityAnalysis } from './components/EntityAnalysis';
 import { MarketOverview } from './components/MarketOverview';
 import { ComparativeTable } from './components/ComparativeTable';
 import { DollarView } from './components/DollarView';
 import { Home } from './components/Home';
 import { AgroView } from './components/AgroView';
+import { WallOfFame } from './components/WallOfFame';
+import { StartMenu } from './components/StartMenu';
 import { useMCPContext } from './contexts/MCPContext';
-import { Sprout } from 'lucide-react';
 
 function App() {
   const { call } = useMCP();
@@ -26,7 +27,7 @@ function App() {
     recentlyViewed
   } = useMCPContext();
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const syncData = async () => {
     try {
@@ -58,20 +59,14 @@ function App() {
   const globalLoading = loadingEntities || loadingMarket;
 
   const renderLayout = (children: React.ReactNode) => (
-    <div className="min-h-screen p-2 md:p-4 flex flex-col gap-2 md:gap-4 font-sans text-black h-screen overflow-hidden bg-retro-bg-tint">
-      {/* Top Menu */}
+    <div className="min-h-screen p-2 md:p-4 flex flex-col gap-2 md:gap-4 font-sans text-black h-screen overflow-hidden bg-transparent">
+      {/* Top Bar - simplified, no explorer */}
       <div className="window py-1 px-2 flex justify-between items-center bg-retro-bg shrink-0 z-50">
         <div className="flex gap-1 md:gap-2 text-xs items-center">
-          <button 
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden p-1 border-2 border-black shadow-button bg-retro-bg active:shadow-button-pressed"
-          >
-            {sidebarOpen ? <X className="w-3 h-3" /> : <Menu className="w-3 h-3" />}
-          </button>
-          <Link to="/">
-            <RetroButton className="font-bold px-2 hidden sm:block">Inicio</RetroButton>
-          </Link>
-          <div className="hidden sm:block w-[1px] bg-gray-600 self-stretch mx-1 shadow-button" />
+          <div>
+            <StartMenu />
+          </div>
+          
           <RetroButton onClick={() => window.location.reload()} disabled={globalLoading} className="px-2">
             <RefreshCw className={`w-3 h-3 ${globalLoading ? 'animate-spin' : ''}`} />
           </RetroButton>
@@ -85,9 +80,6 @@ function App() {
                 Última sync: {lastSyncDateObj.toLocaleString()}
               </span>
             )}
-            <RetroButton className="px-1 md:px-2 text-[10px] md:text-xs bg-pastel-green">
-              <a href="https://github.com/frani/argentino" target="_blank" rel="noopener noreferrer">Github</a>
-            </RetroButton>
           </div>
         </div>
         <div className="text-[9px] md:text-[10px] font-bold bg-pastel-yellow border-black border px-1 py-1 shadow-button truncate max-w-[120px] sm:max-w-none">
@@ -95,68 +87,26 @@ function App() {
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 overflow-hidden relative">
-        {/* Sidebar / Explorer */}
-        <div className={`
-          ${sidebarOpen ? 'flex' : 'hidden md:flex'} 
-          absolute md:relative z-40 inset-0 md:inset-auto 
-          md:col-span-3 h-full overflow-y-auto 
-          bg-retro-bg-tint/95 md:bg-transparent p-4 md:p-0
-        `}>
-          <Window title="Explorador" className="bg-pastel-pink/50 h-full w-full">
-            <div className="flex flex-col gap-1">
-              {[
-                { to: "/", icon: LayoutGrid, label: "Inicio", end: true },
-                { to: "/general", icon: Globe, label: "Vista General" },
-                { to: "/entidades", icon: Landmark, label: "Bancos" },
-                { to: "/dolar", icon: DollarSign, label: "Cotización Dólar" },
-                { to: "/agro", icon: Sprout, label: "Agro" }
-              ].map(link => (
-                <NavLink 
-                  key={link.to}
-                  to={link.to}
-                  end={link.end}
-                  onClick={() => setSidebarOpen(false)}
-                  className={({isActive}) => `flex items-center gap-2 p-2 border border-transparent ${isActive ? 'bg-retro-blue text-white shadow-button' : 'hover:bg-retro-blue/20'}`}
-                >
-                  <link.icon className="w-4 h-4" />
-                  <span className="font-bold text-sm">{link.label}</span>
-                </NavLink>
-              ))}
+      {/* Content Area - full width, no sidebar */}
+      <div className="flex-1 overflow-hidden relative">
 
-              <div className="mt-4 border-t-2 border-black/5 pt-2 px-1">
-                <span className="text-[9px] uppercase font-bold opacity-50">Visto Recientemente</span>
-                <div className="flex flex-col gap-1 mt-1">
-                  {recentlyViewed.length > 0 ? (
-                    recentlyViewed.map(e => (
-                      <NavLink
-                        key={e.id}
-                        to={`/entidades/${e.id}`}
-                        onClick={() => setSidebarOpen(false)}
-                        className={({isActive}) => `flex items-center gap-2 p-1 text-[11px] truncate ${isActive ? 'bg-retro-green text-black border-black border' : 'hover:bg-retro-green/20'}`}
-                      >
-                        <ChevronRight className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{e.name}</span>
-                      </NavLink>
-                    ))
-                  ) : (
-                    <div className="text-[10px] italic opacity-40 p-2">Ninguna entidad visitada</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Window>
-        </div>
-
-        {/* Content Area */}
-        <div className="col-span-12 md:col-span-9 h-full overflow-y-auto">
+        <div className="h-full overflow-y-auto">
           {children}
         </div>
       </div>
 
-      <div className="bg-retro-bg border-t-2 border-white shadow-button p-1 text-[9px] md:text-[10px] flex justify-between shrink-0">
-        <span className="truncate mr-2">Los Valores de los bancos se muestran en Miles y en ARS (pesos)</span>
-        <div className="flex gap-2 md:gap-4 shrink-0">
+      {/* Taskbar - Windows style bottom bar with Start menu */}
+      <div className="bg-retro-bg border-t-2 border-white shadow-button p-1 flex justify-between items-center shrink-0 z-50">
+        <div className="flex items-center gap-2">
+          {/* Quick info in taskbar */}
+
+          {/* Quick info in taskbar */}
+          <span className="text-[9px] md:text-[10px] truncate mr-2 hidden sm:inline border-l border-black/20 pl-2">
+            Los Valores de los bancos se muestran en Miles y en ARS (pesos)
+          </span>
+        </div>
+        
+        <div className="flex gap-2 md:gap-4 shrink-0 text-[9px] md:text-[10px] bg-retro-bg border border-black/30 shadow-button-pressed px-2 py-0.5">
           <span>{new Date().toLocaleDateString()}</span>
           <span className="hidden xs:inline">{new Date().toLocaleTimeString()}</span>
         </div>
@@ -170,17 +120,17 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/general" element={
-            <Window title="Análisis Macroeconómico del Sistema" className="bg-pastel-yellow h-full">
+            <RouteWindow title="Análisis Macroeconómico del Sistema" className="bg-pastel-yellow h-full">
               {loadingMarket ? (
                 <div className="p-10 text-center animate-pulse italic">Cargando datos maestros...</div>
               ) : (
                 <MarketOverview data={marketData} topEntities={topEntities} />
               )}
-            </Window>
+            </RouteWindow>
           } />
           
           <Route path="/entidades" element={
-            <Window 
+            <RouteWindow 
               title={
                 <div className="flex items-center gap-2">
                   <span>Bancos</span>
@@ -189,11 +139,11 @@ function App() {
               className="bg-pastel-pink h-full"
             >
               <ComparativeTable />
-            </Window>
+            </RouteWindow>
           } />
 
           <Route path="/dolar" element={
-            <Window
+            <RouteWindow
               title={
                 <div className="flex items-center gap-2">
                   <DollarSign className="w-4 h-4" />
@@ -203,11 +153,11 @@ function App() {
               className="bg-pastel-yellow h-full"
             >
               <DollarView />
-            </Window>
+            </RouteWindow>
           } />
           
           <Route path="/agro" element={
-            <Window
+            <RouteWindow
               title={
                 <div className="flex items-center gap-2">
                   <Sprout className="w-4 h-4" />
@@ -217,13 +167,24 @@ function App() {
               className="bg-pastel-green h-full"
             >
               <AgroView />
-            </Window>
+            </RouteWindow>
           } />
+
+          <Route path="/wall-of-fame" element={<WallOfFame />} />
 
           <Route path="/entidades/:id" element={<EntityDetailWrapper />} />
         </Routes>
       )}
     </BrowserRouter>
+  );
+}
+
+function RouteWindow({ children, title, className }: { children: React.ReactNode, title: React.ReactNode, className?: string }) {
+  const location = useLocation();
+  return (
+    <Window key={location.key} title={title} className={className}>
+      {children}
+    </Window>
   );
 }
 
@@ -234,6 +195,7 @@ function EntityDetailWrapper() {
   const [localBalances, setLocalBalances] = useState<any[]>(balancesCache[id || ''] || []);
   const [loading, setLoading] = useState(!balancesCache[id || '']);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const entity = entities.find(e => e.uri.endsWith(`/${id}`));
   const entityName = entity?.name.replace('Balances de ', '') || `Entidad ${id}`;
@@ -262,7 +224,7 @@ function EntityDetailWrapper() {
   }, [id, fetchBalances, balancesCache]);
 
   return (
-    <Window title={`Detalle: ${entityName}`} className="bg-pastel-blue h-full overflow-y-auto">
+    <Window key={location.key} title={`Detalle: ${entityName}`} className="bg-pastel-blue h-full overflow-y-auto">
       <div className="flex flex-col gap-4">
         {loading ? (
           <div className="p-10 text-center animate-pulse italic text-retro-blue font-bold">
